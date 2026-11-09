@@ -115,6 +115,21 @@ public final class RoofDripsConfigScreen {
         return o;
     }
 
+    private static Option<Integer> numFmt(String name, String tip, int min, int max, int step,
+            java.util.function.IntFunction<String> fmt,
+            Function<RoofDripsConfig, Integer> get, BiConsumer<RoofDripsConfig, Integer> set, boolean inPreset) {
+        Option<Integer> o = Option.<Integer>createBuilder()
+                .name(Component.literal(name))
+                .description(OptionDescription.of(Component.literal(tip)))
+                .binding(Binding.generic(get.apply(DEF), () -> get.apply(CFG), v -> set.accept(CFG, v)))
+                .controller(opt -> IntegerSliderControllerBuilder.create(opt).range(min, max).step(step)
+                        .formatValue(v -> Component.literal(fmt.apply(v))))
+                .addListener((opt, ev) -> { if (inPreset) onSettingChanged(); })
+                .build();
+        register(o, get, set, inPreset);
+        return o;
+    }
+
     // ---------------- Screen ----------------
     public static Screen create(Screen parent) {
         CFG = RoofDripsConfig.get();
@@ -160,16 +175,25 @@ public final class RoofDripsConfigScreen {
         List<Option<?>> general = new ArrayList<>();
         general.add(enabled); general.add(presetOpt); general.add(radius); general.add(maxParticles);
         general.add(scanSpeed); general.add(opacity); general.add(afterRain);
+        general.add(num("Droplet lifetime limit",
+                "Safety limit: droplets that haven't landed after this long simply disappear. Matters mainly for very tall overhangs.",
+                2, 30, 1, " s", c -> c.maxDropSeconds, (c, v) -> c.maxDropSeconds = v, false));
 
         // ===== Overhang streams & drips =====
         List<Option<?>> edge = new ArrayList<>();
         edge.add(flt("Overall density",
                 "How much water falls from overhang edges. Affects both drips and streams.",
                 0.1f, 4f, 0.05f, false, c -> c.density, (c, v) -> c.density = v, true));
-        edge.add(num("Overhang thickness",
+        edge.add(numFmt("Overhang thickness",
                 "How many stacked blocks tall an overhang can be and still drip. Arches and cave mouths are often "
-              + "several blocks thick. 1 = only single-block overhangs.",
-                1, 8, 1, " blocks", c -> c.overhangDepth, (c, v) -> c.overhangDepth = v, false));
+              + "several blocks thick. 1 = only single-block overhangs. Slide to the far right for Infinite.",
+                1, RoofDripsConfig.INFINITE_DEPTH, 1,
+                v -> v >= RoofDripsConfig.INFINITE_DEPTH ? "Infinite" : v + (v == 1 ? " block" : " blocks"),
+                c -> c.overhangDepth, (c, v) -> c.overhangDepth = v, false));
+        edge.add(bool("Drip above hanging objects",
+                "Lets a block still drip when something like a chain, lantern, fence or wall piece hangs "
+              + "underneath it. The water falls past the object and never appears on the object itself.",
+                c -> c.allowAboveDecor, (c, v) -> c.allowAboveDecor = v, false));
         edge.add(flt("Stream amount",
                 "The average share of streaming versus dripping. 0% = edges mostly drip. 100% = edges run as "
               + "constant streams. Each edge gets its own blend around this average.",
@@ -215,6 +239,13 @@ public final class RoofDripsConfigScreen {
         face.add(flt("Speed variance",
                 "How much streak speeds differ, so they don't all move in lockstep.",
                 0f, 1f, 0.05f, true, c -> c.faceStreakSpeedVar, (c, v) -> c.faceStreakSpeedVar = v, true));
+        face.add(flt("Squiggly streaks",
+                "The share of streaks that wander left and right and speed up or slow down as they run, like rain "
+              + "on a window. 0% = every streak runs straight down.",
+                0f, 1f, 0.05f, true, c -> c.faceWander, (c, v) -> c.faceWander = v, true));
+        face.add(flt("Wander strength",
+                "How far squiggly streaks drift sideways. Low = gentle curves, high = more winding.",
+                0.2f, 2f, 0.05f, false, c -> c.faceWanderStrength, (c, v) -> c.faceWanderStrength = v, true));
 
         // ===== Sounds =====
         List<Option<?>> sound = new ArrayList<>();

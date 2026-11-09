@@ -36,7 +36,7 @@ public class WaterParticle extends SingleQuadParticle {
             this.gravity = 0.5f * p1;     // 0.04 * 0.5 = 0.02 blocks/tick^2 at speed 1.0
             this.friction = 0.96f;
             this.hasPhysics = true;
-            this.lifetime = 100;
+            this.lifetime = Math.max(40, RoofDripsConfig.get().maxDropSeconds * 20);
             this.yd = -0.03 * p1;
             this.splash = RoofDripsConfig.get().splashes;
         } else {

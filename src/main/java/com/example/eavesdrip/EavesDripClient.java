@@ -32,6 +32,8 @@ public class EavesDripClient implements ClientModInitializer {
     private static final int MAX_EDGES = 2500;
     private static final int V_RANGE = 20;
     private static final int MAX_STREAKS = 500;
+    private static final int MAX_STREAK_BLOCKS = 10;     // streaks never run further than this above the lip
+    private static final int INFINITE_SCAN = 512;        // how far down "Infinite" thickness will look
     private static final double CULL_COS = -0.35;
     private static final double NEAR_NO_CULL = 6.0;
     private static final double SOUND_RANGE = 16.0;
@@ -40,29 +42,35 @@ public class EavesDripClient implements ClientModInitializer {
     private static final class Edge {
         final boolean leaf;
         final int seed;
-        int mask;       // bits 0-3: open sides. Leaves also use bit 4 for the underside.
-        int thick = 1;  // roofs: number of stacked blocks above the gap
+        int mask;        // bits 0-3: open sides. Leaves also use bit 4 for the underside.
+        int thick = 1;   // roofs: number of stacked blocks above the gap
+        float bottom;    // roofs: height of the block's underside inside its cell (0 = full block / bottom slab, 0.5 = top slab)
         long seen;
-        long checked;   // last tick this edge was re-verified against the real world
+        long checked;    // last tick this edge was re-verified against the real world
         final int[] burst = new int[4];
         final int[] gap = new int[4];
         final int[] snd = new int[4];
         Edge(boolean leaf, int seed, long now) { this.leaf = leaf; this.seed = seed; this.checked = now; }
     }
 
-    /** A streak sliding down the face of a roof stack. */
+    /** A streak sliding down the face of a roof stack. It can wander sideways and change speed. */
     private static final class Streak {
         long key;
-        double x, y, z, bottom, v;
-        int trail;
+        double bx, bz, tx, tz;          // face base position and the sideways direction along the face
+        double lat, latV, latTarget;    // sideways position / velocity
+        double y, bottom;
+        double v, v0, vTarget;          // downward speed (blocks per tick)
+        int trail, steerTimer, speedTimer;
+        boolean wander;
     }
 
-    private record Roof(int lowY, int thick, int mask) { }
+    private record Roof(int lowY, int thick, int mask, float bottom) { }
 
     private final Map<Long, Edge> roofEdges = new HashMap<>();
     private final Map<Long, Edge> leafEdges = new HashMap<>();
     private final List<Streak> streaks = new ArrayList<>();
     private final BlockPos.MutableBlockPos scratch = new BlockPos.MutableBlockPos();
+    private final BlockPos.MutableBlockPos scratch2 = new BlockPos.MutableBlockPos();
 
     private float wetness = 0f;
     private long tickCount = 0;
@@ -140,45 +148,107 @@ public class EavesDripClient implements ClientModInitializer {
     }
 
     /**
-     * Looks at one column. Walks down from the rain-exposed top block through up to "overhangDepth"
-     * solid blocks. If it then reaches open space, the lowest solid block is a drip rim.
-     * Returns null if the column is not an overhang right now.
+     * "Decor": a block that has a collision shape but is not a real roof/wall piece. Chains, lanterns, fences,
+     * wall posts, panes, open trapdoors, doors, signs and so on. A real roof piece has a complete flat top or
+     * bottom face (full blocks, stairs, both kinds of slab). Leaves are treated as solid, never as decor.
+     */
+    private boolean isDecorBlock(BlockState s, BlockPos p) {
+        if (s.getCollisionShape(level, p).isEmpty()) return false;
+        if (!s.getFluidState().isEmpty()) return false;
+        if (s.is(BlockTags.LEAVES)) return false;
+        return !(s.isFaceSturdy(level, p, Direction.DOWN) || s.isFaceSturdy(level, p, Direction.UP));
+    }
+
+    /** Can water and falling drops pass through this cell? (air, plants, and - if enabled - decor.) */
+    private boolean thr(int x, int y, int z, boolean decorOk) {
+        BlockPos.MutableBlockPos q = scratch2;
+        q.set(x, y, z);
+        BlockState s = level.getBlockState(q);
+        if (!s.getFluidState().isEmpty()) return false;
+        if (s.getCollisionShape(level, q).isEmpty()) return true;
+        return decorOk && isDecorBlock(s, q);
+    }
+
+    /**
+     * Looks at one column and decides whether it is a drip rim right now.
+     *
+     * 1. Take the rain-exposed top block (skipping a few decor blocks such as fence posts on top).
+     * 2. Cheap test: water on its top must be able to run off at least one side. That side needs open air beside the
+     *    top surface, an open edge, and open sky above the neighbouring column (so interior steps, diagonal roof
+     *    lines and thin crusts over caves are rejected right here).
+     * 3. Walk down through the stack. A side stays alive only while the whole face is open air. The walk ends at the
+     *    first gap (open air, or decor if enabled). The block just above the gap is the rim.
+     * 4. The rim needs a full flat top or bottom (so top slabs work) and the side below it must be open.
      */
     private Roof analyze(int x, int z, int refY) {
-        int depth = cfg.overhangDepth;
+        boolean decorOk = cfg.allowAboveDecor;
+        int maxT = cfg.overhangDepth >= RoofDripsConfig.INFINITE_DEPTH ? INFINITE_SCAN : cfg.overhangDepth;
         BlockPos.MutableBlockPos p = scratch;
         p.set(x, 0, z);
         if (!level.hasChunkAt(p)) return null;
 
         int top = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z) - 1;
-        if (Math.abs(top - refY) > V_RANGE + depth) return null;
-
-        int t = 0;
         int y = top;
+        int skipped = 0;
+        BlockState s;
         while (true) {
             p.set(x, y, z);
-            BlockState s = level.getBlockState(p);
-            if (t == 0 && (s.is(BlockTags.LEAVES) || !s.getFluidState().isEmpty())) return null;
-            if (isFree(level, p)) break;
-            if (!s.getFluidState().isEmpty()) return null;
-            t++;
-            if (t > depth) return null;      // too thick: that's a wall or solid ground, not an overhang
-            y--;
+            s = level.getBlockState(p);
+            if (!s.getFluidState().isEmpty() || s.is(BlockTags.LEAVES)) return null;
+            if (decorOk && isDecorBlock(s, p)) {
+                if (++skipped > 4) return null;
+                y--;
+                continue;
+            }
+            break;
         }
-        if (t == 0) return null;
+        if (s.getCollisionShape(level, p).isEmpty()) return null;
+        int topY = y;
 
-        int lowY = y + 1;
+        int alive = 0;
+        for (int d = 0; d < 4; d++) {
+            int nx = x + HORIZ[d].getStepX(), nz = z + HORIZ[d].getStepZ();
+            if (thr(nx, topY + 1, nz, decorOk) && thr(nx, topY, nz, decorOk)
+                    && level.getHeight(Heightmap.Types.MOTION_BLOCKING, nx, nz) <= topY + 2) {
+                alive |= 1 << d;
+            }
+        }
+        if (alive == 0) return null;
+
+        int t = 1;
+        int yy = topY - 1;
+        while (true) {
+            if (yy < topY - INFINITE_SCAN) return null;
+            p.set(x, yy, z);
+            s = level.getBlockState(p);
+            if (!s.getFluidState().isEmpty()) return null;
+            if (s.getCollisionShape(level, p).isEmpty() || (decorOk && isDecorBlock(s, p))) break;   // the gap
+
+            for (int d = 0; d < 4; d++) {
+                if ((alive & (1 << d)) == 0) continue;
+                if (!thr(x + HORIZ[d].getStepX(), yy, z + HORIZ[d].getStepZ(), decorOk)) alive &= ~(1 << d);
+            }
+            if (alive == 0) return null;
+            t++;
+            if (t > maxT) return null;
+            yy--;
+        }
+
+        int lowY = yy + 1;
+        if (Math.abs(lowY - refY) > V_RANGE) return null;
         p.set(x, lowY, z);
-        if (!level.getBlockState(p).isFaceSturdy(level, p, Direction.DOWN)) return null; // needs a full solid underside
+        BlockState low = level.getBlockState(p);
+        if (!(low.isFaceSturdy(level, p, Direction.DOWN) || low.isFaceSturdy(level, p, Direction.UP))) return null;
         if (!rainsHere(p)) return null;
 
-        int mask = 0;
         for (int d = 0; d < 4; d++) {
-            BlockPos n = p.relative(HORIZ[d]);
-            if (isFree(level, n) && isFree(level, n.below())) mask |= 1 << d;
+            if ((alive & (1 << d)) == 0) continue;
+            if (!thr(x + HORIZ[d].getStepX(), lowY - 1, z + HORIZ[d].getStepZ(), decorOk)) alive &= ~(1 << d);
         }
-        if (mask == 0) return null;
-        return new Roof(lowY, t, mask);
+        if (alive == 0) return null;
+
+        double bottom = low.getCollisionShape(level, p).min(Direction.Axis.Y);
+        return new Roof(lowY, t, alive, (float) Math.max(0.0, Math.min(0.95, bottom)));
     }
 
     // ================= Discovery =================
@@ -201,6 +271,7 @@ public class EavesDripClient implements ClientModInitializer {
             if (e == null) { e = new Edge(false, seedOf(key), tickCount); roofEdges.put(key, e); }
             e.mask = r.mask();
             e.thick = r.thick();
+            e.bottom = r.bottom();
             e.seen = tickCount;
         }
     }
@@ -282,6 +353,7 @@ public class EavesDripClient implements ClientModInitializer {
                 if (r == null || r.lowY() != rim.getY()) { it.remove(); continue; }
                 e.mask = r.mask();
                 e.thick = r.thick();
+                e.bottom = r.bottom();
                 e.checked = tickCount;
                 e.seen = tickCount;
             }
@@ -307,14 +379,15 @@ public class EavesDripClient implements ClientModInitializer {
         float s = Math.max(0f, Math.min(1f, cfg.streamShare + (hash(e.seed, d * 7 + 1) - 0.5f) * 2f * var));
         float rateMul = Math.max(0.2f, 1f + (hash(e.seed, d * 7 + 2) - 0.5f) * var * 1.6f);
         float dripChance = 0.035f * dens * rateMul * (0.4f + 0.6f * (1f - s));
+        double soundY = rim.getY() + e.bottom + 0.2;
 
         if (e.burst[d] > 0) {
             e.burst[d]--;
             int n = roll(0.85f * dens * rateMul * (0.45f + 0.55f * s));
-            for (int i = 0; i < n && roofBudget > 0; i++) { emitLipDrop(rim, d); roofBudget--; }
+            for (int i = 0; i < n && roofBudget > 0; i++) { emitLipDrop(rim, d, e); roofBudget--; }
             if (e.snd[d]-- <= 0) {
                 e.snd[d] = 30 + rnd.nextInt(20);
-                playSound(rim.getX() + 0.5, rim.getY() + 0.2, rim.getZ() + 0.5, true, dist);
+                playSound(rim.getX() + 0.5, soundY, rim.getZ() + 0.5, true, dist);
             }
             if (e.burst[d] == 0) {
                 if (s > 0.97f) {
@@ -332,10 +405,10 @@ public class EavesDripClient implements ClientModInitializer {
                 e.burst[d] = Math.max(3, Math.round(cfg.streamLength * 7f * v * (0.4f + 0.6f * s)));
             }
             if (roofBudget > 0 && rnd.nextFloat() < dripChance) {
-                emitLipDrop(rim, d);
+                emitLipDrop(rim, d, e);
                 roofBudget--;
                 if (rnd.nextFloat() < 0.35f) {
-                    playSound(rim.getX() + 0.5, rim.getY() + 0.2, rim.getZ() + 0.5, false, dist);
+                    playSound(rim.getX() + 0.5, soundY, rim.getZ() + 0.5, false, dist);
                 }
             }
         }
@@ -347,12 +420,12 @@ public class EavesDripClient implements ClientModInitializer {
         }
     }
 
-    private void emitLipDrop(BlockPos rim, int d) {
+    private void emitLipDrop(BlockPos rim, int d, Edge e) {
         Direction dir = HORIZ[d];
         double along = (rnd.nextDouble() - 0.5) * 0.8;
         double px = rim.getX() + 0.5 + dir.getStepX() * 0.53 + (dir.getAxis() == Direction.Axis.X ? 0 : along);
         double pz = rim.getZ() + 0.5 + dir.getStepZ() * 0.53 + (dir.getAxis() == Direction.Axis.Z ? 0 : along);
-        spawnDrop(px, rim.getY() - 0.02, pz);
+        spawnDrop(px, rim.getY() + e.bottom - 0.02, pz);
     }
 
     private void spawnDrop(double x, double y, double z) {
@@ -364,14 +437,15 @@ public class EavesDripClient implements ClientModInitializer {
     // ---- Streaks running down the face of a roof stack ----
 
     /**
-     * Water only visibly runs down a face that is a complete flat wall from the rain-exposed top all the way
-     * down: every block in the stack must have a full-height side face on this side, with open air beside it.
-     * Slabs and stairs fail this test, so they only drip.
+     * Streaks only run down a face that is a complete flat wall of full-height blocks with open air beside it,
+     * for (at most) the bottom MAX_STREAK_BLOCKS blocks of the stack. Slabs and stairs fail this test, so they
+     * only drip. Hanging decor next to the face also blocks streaks, so streaks never run into it.
      */
     private boolean faceStreakAllowed(BlockPos rim, int thick, int d) {
         Direction dir = HORIZ[d];
+        int h = Math.min(thick, MAX_STREAK_BLOCKS);
         BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
-        for (int k = 0; k < thick; k++) {
+        for (int k = 0; k < h; k++) {
             p.set(rim.getX(), rim.getY() + k, rim.getZ());
             BlockState s = level.getBlockState(p);
             if (!s.isFaceSturdy(level, p, dir)) return false;
@@ -382,18 +456,30 @@ public class EavesDripClient implements ClientModInitializer {
 
     private void spawnStreak(BlockPos rim, int d, int thick) {
         Direction dir = HORIZ[d];
-        double lateral = (rnd.nextDouble() - 0.5) * 0.84;
+        int h = Math.min(thick, MAX_STREAK_BLOCKS);
+        boolean xAxis = dir.getAxis() == Direction.Axis.X;
+
         Streak s = new Streak();
         s.key = rim.asLong();
-        s.x = rim.getX() + 0.5 + dir.getStepX() * 0.51 + (dir.getAxis() == Direction.Axis.X ? 0 : lateral);
-        s.z = rim.getZ() + 0.5 + dir.getStepZ() * 0.51 + (dir.getAxis() == Direction.Axis.Z ? 0 : lateral);
-        s.y = rim.getY() + thick - 0.03;
+        s.bx = rim.getX() + 0.5 + dir.getStepX() * 0.51;
+        s.bz = rim.getZ() + 0.5 + dir.getStepZ() * 0.51;
+        s.tx = xAxis ? 0 : 1;
+        s.tz = xAxis ? 1 : 0;
+        s.lat = (rnd.nextDouble() - 0.5) * 0.84;
         s.bottom = rim.getY() + 0.03;
+        // Single-block faces start at the top. Taller faces get streaks starting at random heights.
+        s.y = h <= 1 ? rim.getY() + 1 - 0.03 : rim.getY() + 1 + (h - 1 - 0.03) * rnd.nextDouble();
+
         float sv = 1f + (rnd.nextFloat() * 2f - 1f) * cfg.faceStreakSpeedVar;
-        s.v = Math.max(0.008, 0.04 * cfg.faceStreakSpeed * sv);
+        s.v0 = Math.max(0.008, 0.04 * cfg.faceStreakSpeed * sv);
+        s.v = s.v0;
+        s.vTarget = s.v0;
         float lv = 1f + (rnd.nextFloat() * 2f - 1f) * cfg.faceStreakLengthVar;
         double trailBlocks = Math.max(0.1, 0.9 * cfg.faceStreakLength * lv);
-        s.trail = Math.max(2, (int) Math.round(trailBlocks / s.v));
+        s.trail = Math.max(2, (int) Math.round(trailBlocks / s.v0));
+        s.wander = rnd.nextFloat() < cfg.faceWander;
+        s.steerTimer = 1;
+        s.speedTimer = 5 + rnd.nextInt(10);
         streaks.add(s);
     }
 
@@ -402,15 +488,35 @@ public class EavesDripClient implements ClientModInitializer {
         while (it.hasNext()) {
             Streak s = it.next();
             if (!roofEdges.containsKey(s.key)) { it.remove(); continue; }   // roof changed or removed
+
+            if (s.wander) {
+                // Like rain on a window: mostly downward, but drifting left and right and changing speed in sections.
+                if (--s.steerTimer <= 0) {
+                    s.steerTimer = 5 + rnd.nextInt(14);
+                    s.latTarget = (rnd.nextDouble() * 2 - 1) * 0.014 * cfg.faceWanderStrength;
+                }
+                s.latV += (s.latTarget - s.latV) * 0.3;
+                s.lat += s.latV;
+                if (s.lat > 0.44) { s.lat = 0.44; s.latTarget = -Math.abs(s.latTarget); s.latV *= -0.5; }
+                else if (s.lat < -0.44) { s.lat = -0.44; s.latTarget = Math.abs(s.latTarget); s.latV *= -0.5; }
+
+                if (--s.speedTimer <= 0) {
+                    s.speedTimer = 8 + rnd.nextInt(20);
+                    double swing = Math.max(0.3, cfg.faceStreakSpeedVar) * 0.8;
+                    s.vTarget = Math.max(0.006, s.v0 * (1 + (rnd.nextDouble() * 2 - 1) * swing));
+                }
+                s.v += (s.vTarget - s.v) * 0.2;
+            }
+
             s.y -= s.v;
+            double x = s.bx + s.tx * s.lat, z = s.bz + s.tz * s.lat;
             if (s.y <= s.bottom) {
-                if (roofBudget > 0 && rnd.nextFloat() < 0.7f) { spawnDrop(s.x, s.bottom - 0.02, s.z); roofBudget--; }
+                if (roofBudget > 0 && rnd.nextFloat() < 0.7f) { spawnDrop(x, s.bottom - 0.02, z); roofBudget--; }
                 it.remove();
                 continue;
             }
             if (roofBudget > 0) {
-                level.addParticle(RoofDripsMod.DOT, s.x, s.y, s.z,
-                        0.022f * cfg.dropSize, s.trail, cfg.opacity * 0.85f);
+                level.addParticle(RoofDripsMod.DOT, x, s.y, z, 0.022f * cfg.dropSize, s.trail, cfg.opacity * 0.85f);
                 roofBudget--;
             }
         }

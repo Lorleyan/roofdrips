@@ -16,7 +16,8 @@ public class RoofDripsConfig {
 
     public enum Preset { LIGHT, DEFAULT, EXTREME, CUSTOM }
 
-    private static final int CONFIG_VERSION = 2;
+    public static final int INFINITE_DEPTH = 20;   // slider value that means "no limit"
+    private static final int CONFIG_VERSION = 3;
 
     /** null in files written by older versions of the mod. */
     public Integer configVersion;
@@ -43,10 +44,14 @@ public class RoofDripsConfig {
     public float faceStreakLengthVar = 0.4f;
     public float faceStreakSpeed = 1.0f;
     public float faceStreakSpeedVar = 0.5f;
+    public float faceWander = 0.35f;          // share of streaks that wander sideways
+    public float faceWanderStrength = 1.0f;
     public float opacity = 0.9f;
 
     // ---- Not part of presets ----
     public int overhangDepth = 3;
+    public boolean allowAboveDecor = true;
+    public int maxDropSeconds = 12;
     public int afterRainSeconds = 20;
     public boolean soundsEnabled = true;
     public float dripVolume = 0.5f;
@@ -66,7 +71,7 @@ public class RoofDripsConfig {
                 c.streamLength = 3; c.streamLengthVar = 0.4f;
                 c.fallSpeed = 1.0f; c.fallSpeedVar = 0.3f; c.dropSize = 1.0f; c.splashes = false;
                 c.faceStreakAmount = 0.4f; c.faceStreakLength = 0.6f; c.faceStreakLengthVar = 0.3f;
-                c.faceStreakSpeed = 1.0f; c.faceStreakSpeedVar = 0.4f; c.opacity = 0.8f;
+                c.faceStreakSpeed = 1.0f; c.faceStreakSpeedVar = 0.4f; c.opacity = 0.8f; c.faceWander = 0.15f; c.faceWanderStrength = 0.8f;
             }
             case EXTREME -> {
                 c.radius = 40; c.maxParticles = 260; c.scanSpeed = 260;
@@ -74,7 +79,7 @@ public class RoofDripsConfig {
                 c.streamLength = 8; c.streamLengthVar = 0.6f;
                 c.fallSpeed = 1.5f; c.fallSpeedVar = 0.5f; c.dropSize = 1.3f; c.splashes = true;
                 c.faceStreakAmount = 1.6f; c.faceStreakLength = 1.0f; c.faceStreakLengthVar = 0.5f;
-                c.faceStreakSpeed = 1.2f; c.faceStreakSpeedVar = 0.6f; c.opacity = 1.0f;
+                c.faceStreakSpeed = 1.2f; c.faceStreakSpeedVar = 0.6f; c.opacity = 1.0f; c.faceWander = 0.55f; c.faceWanderStrength = 1.3f;
             }
             default -> { // DEFAULT (and CUSTOM falls back to these values)
                 c.radius = 28; c.maxParticles = 110; c.scanSpeed = 150;
@@ -82,7 +87,7 @@ public class RoofDripsConfig {
                 c.streamLength = 5; c.streamLengthVar = 0.5f;
                 c.fallSpeed = 1.25f; c.fallSpeedVar = 0.4f; c.dropSize = 1.0f; c.splashes = true;
                 c.faceStreakAmount = 0.8f; c.faceStreakLength = 0.8f; c.faceStreakLengthVar = 0.4f;
-                c.faceStreakSpeed = 1.0f; c.faceStreakSpeedVar = 0.5f; c.opacity = 0.9f;
+                c.faceStreakSpeed = 1.0f; c.faceStreakSpeedVar = 0.5f; c.opacity = 0.9f; c.faceWander = 0.35f; c.faceWanderStrength = 1.0f;
             }
         }
         if (p != Preset.CUSTOM) c.preset = p;
@@ -102,7 +107,8 @@ public class RoofDripsConfig {
                 && near(dropSize, r.dropSize) && splashes == r.splashes
                 && near(faceStreakAmount, r.faceStreakAmount) && near(faceStreakLength, r.faceStreakLength)
                 && near(faceStreakLengthVar, r.faceStreakLengthVar) && near(faceStreakSpeed, r.faceStreakSpeed)
-                && near(faceStreakSpeedVar, r.faceStreakSpeedVar) && near(opacity, r.opacity);
+                && near(faceStreakSpeedVar, r.faceStreakSpeedVar) && near(opacity, r.opacity)
+                && near(faceWander, r.faceWander) && near(faceWanderStrength, r.faceWanderStrength);
     }
 
     public Preset detectPreset() {
@@ -125,7 +131,9 @@ public class RoofDripsConfig {
         faceStreakAmount = cl(faceStreakAmount, 0f, 4f); faceStreakLength = cl(faceStreakLength, 0.1f, 1f);
         faceStreakLengthVar = cl(faceStreakLengthVar, 0f, 1f); faceStreakSpeed = cl(faceStreakSpeed, 0.2f, 4f);
         faceStreakSpeedVar = cl(faceStreakSpeedVar, 0f, 1f); opacity = cl(opacity, 0.2f, 1f);
-        overhangDepth = cl(overhangDepth, 1, 8);
+        overhangDepth = cl(overhangDepth, 1, INFINITE_DEPTH);
+        maxDropSeconds = cl(maxDropSeconds, 2, 30);
+        faceWander = cl(faceWander, 0f, 1f); faceWanderStrength = cl(faceWanderStrength, 0.2f, 2f);
         afterRainSeconds = cl(afterRainSeconds, 0, 120);
         dripVolume = cl(dripVolume, 0f, 3f); streamVolume = cl(streamVolume, 0f, 3f);
         maxSoundsPerSecond = cl(maxSoundsPerSecond, 1, 30);
