@@ -17,7 +17,7 @@ public class RoofDripsConfig {
     public enum Preset { LIGHT, DEFAULT, EXTREME, CUSTOM }
 
     public static final int INFINITE_DEPTH = 20;   // slider value that means "no limit"
-    private static final int CONFIG_VERSION = 3;
+    private static final int CONFIG_VERSION = 4;
 
     /** null in files written by older versions of the mod. */
     public Integer configVersion;
@@ -61,6 +61,40 @@ public class RoofDripsConfig {
     public float treeDensity = 1.0f;
     public int treeMaxParticles = 30;
     public int treeRadius = 20;
+
+    // ---- Wind (simulated; vanilla Minecraft has no wind) ----
+    public boolean windEnabled = false;
+    public float windStrength = 1.0f;
+    public int windDirection = 45;            // degrees clockwise from north, the direction the wind blows TOWARD
+    public float windDriftAmount = 0.25f;
+    public boolean windRandomPerStorm = false;
+    public boolean windStormBoost = true;
+    public float windTurbulence = 0.3f;
+    public float gustFrequency = 0.4f;
+    public float gustStrength = 1.5f;
+    public int gustDuration = 3;
+
+    // ---- Cave drip ----
+    public boolean caveEnabled = true;
+    public float caveDensity = 1.0f;
+    public float caveDropSize = 0.9f;
+    public float caveFallSpeed = 1.0f;
+    public int caveRadius = 20;
+    public int caveMaxParticles = 12;
+    public boolean caveWaterEnabled = true;
+    public int caveWaterRange = 4;
+    public boolean caveRainEnabled = true;
+    public int caveRainRange = 3;
+    public float caveRainChance = 0.25f;
+    public boolean caveNaturalOnly = true;
+    public float caveSoundVolume = 0.4f;
+
+    // ---- Dripstone ----
+    public boolean dripstoneEnabled = false;
+    public boolean dripstoneRequireWater = false;
+    public float dripstoneDensity = 1.0f;
+    public float dripstoneDropSize = 1.0f;
+    public float dripstoneFallSpeed = 1.0f;
 
     // ---------------- Presets ----------------
     public static void applyPreset(RoofDripsConfig c, Preset p) {
@@ -139,6 +173,17 @@ public class RoofDripsConfig {
         maxSoundsPerSecond = cl(maxSoundsPerSecond, 1, 30);
         treeDensity = cl(treeDensity, 0.1f, 4f); treeMaxParticles = cl(treeMaxParticles, 5, 200);
         treeRadius = cl(treeRadius, 8, 48);
+        windStrength = cl(windStrength, 0f, 3f); windDirection = cl(windDirection, 0, 359);
+        windDriftAmount = cl(windDriftAmount, 0f, 1f); windTurbulence = cl(windTurbulence, 0f, 1f);
+        gustFrequency = cl(gustFrequency, 0f, 1f); gustStrength = cl(gustStrength, 0f, 3f);
+        gustDuration = cl(gustDuration, 1, 10);
+        caveDensity = cl(caveDensity, 0.1f, 4f); caveDropSize = cl(caveDropSize, 0.5f, 5f);
+        caveFallSpeed = cl(caveFallSpeed, 0.3f, 3f); caveRadius = cl(caveRadius, 8, 40);
+        caveMaxParticles = cl(caveMaxParticles, 2, 60); caveWaterRange = cl(caveWaterRange, 1, 12);
+        caveRainRange = cl(caveRainRange, 1, 12); caveRainChance = cl(caveRainChance, 0f, 1f);
+        caveSoundVolume = cl(caveSoundVolume, 0f, 3f);
+        dripstoneDensity = cl(dripstoneDensity, 0.1f, 4f); dripstoneDropSize = cl(dripstoneDropSize, 0.5f, 5f);
+        dripstoneFallSpeed = cl(dripstoneFallSpeed, 0.3f, 3f);
         if (preset == null) preset = Preset.DEFAULT;
         preset = detectPreset();
     }

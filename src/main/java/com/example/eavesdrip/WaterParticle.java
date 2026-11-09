@@ -19,12 +19,18 @@ public class WaterParticle extends SingleQuadParticle {
     private final boolean falling;
     private final float baseAlpha;
     private final boolean splash;
+    private final float windFactor;
+
+    /** Set by the spawner right before addParticle: how strongly the wind pushes this droplet (0 = not at all). */
+    public static float pendingWind = 0f;
 
     protected WaterParticle(ClientLevel level, double x, double y, double z, SpriteSet sprites,
                             boolean falling, float size, float p1, float alpha) {
         super(level, x, y, z, sprites.first());
         this.falling = falling;
         this.baseAlpha = alpha;
+        this.windFactor = falling ? pendingWind : 0f;
+        if (falling) pendingWind = 0f;
         this.xd = 0;
         this.yd = 0;
         this.zd = 0;
@@ -55,6 +61,17 @@ public class WaterParticle extends SingleQuadParticle {
 
     @Override
     public void tick() {
+        if (falling && windFactor > 0f && Wind.active) {
+            float wx = Wind.x * windFactor, wz = Wind.z * windFactor;
+            this.xd += (wx - this.xd) * 0.12;
+            this.zd += (wz - this.zd) * 0.12;
+            float turb = RoofDripsConfig.get().windTurbulence;
+            if (turb > 0f) {
+                float mag = (float) Math.sqrt(Wind.x * Wind.x + Wind.z * Wind.z);
+                this.xd += (this.random.nextFloat() - 0.5f) * 0.5f * turb * mag;
+                this.zd += (this.random.nextFloat() - 0.5f) * 0.5f * turb * mag;
+            }
+        }
         super.tick();
         if (!this.isAlive()) return;
 

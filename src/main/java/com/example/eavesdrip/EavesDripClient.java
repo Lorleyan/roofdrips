@@ -18,8 +18,12 @@ import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.PointedDripstoneBlock;
+import net.minecraft.world.level.block.state.properties.DripstoneThickness;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
@@ -37,6 +41,10 @@ public class EavesDripClient implements ClientModInitializer {
     private static final double CULL_COS = -0.35;
     private static final double NEAR_NO_CULL = 6.0;
     private static final double SOUND_RANGE = 16.0;
+    private static final int CAVE_V = 14;          // vertical search range around the player for cave drips
+    private static final int CAVE_SAMPLES = 120;   // random positions tested per tick
+    private static final int CAVE_TTL = 400;
+    private static final int MAX_CAVE = 1500;
 
     /** A rim block that water can run off. For roofs this is the LOWEST block of the stack above a gap. */
     private static final class Edge {
@@ -66,9 +74,21 @@ public class EavesDripClient implements ClientModInitializer {
 
     private record Roof(int lowY, int thick, int mask, float bottom) { }
 
+    /** A cave ceiling block (or dripstone tip) that can drip. src: 0 none, 1 water above, 2 rain seeping. */
+    private static final class CaveSpot {
+        final int seed;
+        final boolean dripstone;
+        int src;
+        long seen, checked;
+        CaveSpot(int seed, boolean dripstone, long now) { this.seed = seed; this.dripstone = dripstone; this.checked = now; }
+    }
+
+    private record CaveInfo(boolean dripstone, int src) { }
+
     private final Map<Long, Edge> roofEdges = new HashMap<>();
     private final Map<Long, Edge> leafEdges = new HashMap<>();
     private final List<Streak> streaks = new ArrayList<>();
+    private final Map<Long, CaveSpot> caveSpots = new HashMap<>();
     private final BlockPos.MutableBlockPos scratch = new BlockPos.MutableBlockPos();
     private final BlockPos.MutableBlockPos scratch2 = new BlockPos.MutableBlockPos();
 
@@ -83,6 +103,12 @@ public class EavesDripClient implements ClientModInitializer {
     private Vec3 eye, look;
     private int roofBudget, leafBudget;
 
+    // wind simulation state
+    private double driftPhase = 0, stormDeg = 0, gustAngle = 0;
+    private boolean wasWet = false;
+    private int gustTimer = 200, gustLen = 0, gustAge = 0;
+    private float gustAmp = 0f;
+
     @Override
     public void onInitializeClient() {
         ParticleProviderRegistry.getInstance().register(RoofDripsMod.DROP, WaterParticle.DropProvider::new);
@@ -94,6 +120,7 @@ public class EavesDripClient implements ClientModInitializer {
         roofEdges.clear();
         leafEdges.clear();
         streaks.clear();
+        caveSpots.clear();
     }
 
     private void onTick(Minecraft mc) {
@@ -108,7 +135,7 @@ public class EavesDripClient implements ClientModInitializer {
         float rain = level.getRainLevel(1.0f);
         float fade = cfg.afterRainSeconds <= 0 ? 1f : 1f / (20f * cfg.afterRainSeconds);
         wetness = rain > wetness ? rain : Math.max(rain, wetness - fade);
-        if (wetness <= 0.02f) { clearAll(); return; }
+        boolean wet = wetness > 0.02f;
 
         tickCount++;
         rnd = level.getRandom();
@@ -118,13 +145,74 @@ public class EavesDripClient implements ClientModInitializer {
         leafBudget = cfg.treeMaxParticles;
         soundTokens = Math.min(4f, soundTokens + cfg.maxSoundsPerSecond / 20f);
 
-        if (rain > 0.02f) {
-            discoverRoofs(player);
-            if (cfg.treesEnabled) discoverLeaves(player);
+        updateWind(wet, level.getThunderLevel(1.0f));
+
+        // Outdoor effects only while it is (or just was) raining.
+        if (wet) {
+            if (rain > 0.02f) {
+                discoverRoofs(player);
+                if (cfg.treesEnabled) discoverLeaves(player);
+            }
+            emitRoofs();
+            updateStreaks();
+            if (cfg.treesEnabled) emitLeaves(); else leafEdges.clear();
+        } else {
+            roofEdges.clear();
+            leafEdges.clear();
+            streaks.clear();
         }
-        emitRoofs();
-        updateStreaks();
-        if (cfg.treesEnabled) emitLeaves(); else leafEdges.clear();
+
+        // Cave drips work in any weather (water above), and also while raining (seeping rain).
+        if (cfg.caveEnabled || cfg.dripstoneEnabled) {
+            discoverCave(player);
+            emitCave();
+        } else {
+            caveSpots.clear();
+        }
+    }
+
+    // ================= Wind =================
+    private int nextGustInterval() {
+        float freq = cfg.gustFrequency;
+        if (freq <= 0.001f) return 20 * 600;
+        float sec = 90f + (6f - 90f) * freq;   // 0% -> every ~90 s, 100% -> every ~6 s (on average)
+        return Math.max(20, Math.round(20f * sec * (0.6f + 0.8f * rnd.nextFloat())));
+    }
+
+    /** A made-up wind: a base direction that slowly drifts, plus smooth gusts. Vanilla Minecraft has no wind. */
+    private void updateWind(boolean wet, float thunder) {
+        if (!cfg.windEnabled) { Wind.active = false; Wind.x = 0f; Wind.z = 0f; return; }
+
+        if (wet && !wasWet) stormDeg = rnd.nextDouble() * 360.0;
+        wasWet = wet;
+
+        double deg = cfg.windRandomPerStorm ? stormDeg : cfg.windDirection;
+        driftPhase += 0.004;
+        deg += (Math.sin(driftPhase) * 60.0 + Math.sin(driftPhase * 2.7 + 1.3) * 25.0) * cfg.windDriftAmount;
+
+        float str = cfg.windStrength;
+        if (cfg.windStormBoost) str *= 1f + 0.5f * thunder;
+
+        float gust = 0f;
+        double gustOff = 0;
+        if (gustLen > 0) {
+            float t = gustAge / (float) gustLen;
+            float swell = (float) Math.sin(Math.PI * t);
+            gust = gustAmp * swell;
+            gustOff = gustAngle * swell;
+            if (++gustAge >= gustLen) { gustLen = 0; gustTimer = nextGustInterval(); }
+        } else if (cfg.gustFrequency > 0.001f && cfg.gustStrength > 0.001f && --gustTimer <= 0) {
+            gustLen = Math.max(10, Math.round(cfg.gustDuration * 20f * (0.6f + 0.8f * rnd.nextFloat())));
+            gustAge = 0;
+            gustAmp = cfg.gustStrength * (0.6f + 0.8f * rnd.nextFloat());
+            gustAngle = Math.toRadians((rnd.nextDouble() * 2 - 1) * 30.0);
+        }
+
+        double a = Math.toRadians(deg) + gustOff;
+        float speed = 0.08f * str * (1f + gust);
+        Wind.x = (float) (Math.sin(a) * speed);     // 0 deg = north = -z, 90 deg = east = +x
+        Wind.z = (float) (-Math.cos(a) * speed);
+        Wind.active = true;
     }
 
     // ================= World analysis =================
@@ -431,6 +519,15 @@ public class EavesDripClient implements ClientModInitializer {
     private void spawnDrop(double x, double y, double z) {
         float size = 0.028f * cfg.dropSize * (0.8f + rnd.nextFloat() * 0.5f);
         float speed = cfg.fallSpeed * (1f + (rnd.nextFloat() * 2f - 1f) * cfg.fallSpeedVar);
+        WaterParticle.pendingWind = cfg.windEnabled ? 0.7f + rnd.nextFloat() * 0.6f : 0f;
+        level.addParticle(RoofDripsMod.DROP, x, y, z, size, Math.max(0.2f, speed), cfg.opacity);
+    }
+
+    /** Cave drops are sheltered from the wind. */
+    private void spawnCaveDrop(double x, double y, double z, float sizeMul, float speedMul) {
+        float size = 0.028f * sizeMul * (0.8f + rnd.nextFloat() * 0.5f);
+        float speed = speedMul * (1f + (rnd.nextFloat() * 2f - 1f) * 0.25f);
+        WaterParticle.pendingWind = 0f;
         level.addParticle(RoofDripsMod.DROP, x, y, z, size, Math.max(0.2f, speed), cfg.opacity);
     }
 
@@ -561,6 +658,169 @@ public class EavesDripClient implements ClientModInitializer {
                 spawnDrop(px, rim.getY() + 0.1 + rnd.nextDouble() * 0.7, pz);
             }
             leafBudget--;
+        }
+    }
+
+    // ================= Cave drip =================
+
+    private boolean isNaturalCeiling(BlockState s) {
+        return s.is(BlockTags.BASE_STONE_OVERWORLD) || s.is(BlockTags.STONE_ORE_REPLACEABLES)
+                || s.is(BlockTags.DEEPSLATE_ORE_REPLACEABLES) || s.is(BlockTags.DIRT) || s.is(BlockTags.SAND)
+                || s.is(BlockTags.TERRACOTTA) || s.is(Blocks.GRAVEL) || s.is(Blocks.CLAY);
+    }
+
+    /**
+     * Is this position a cave ceiling block, or a hanging dripstone tip, with a leak source above it?
+     * Source 1 = water within range above. Source 2 = the rainy surface within range above.
+     */
+    private CaveInfo analyzeCave(int x, int y, int z) {
+        BlockPos.MutableBlockPos p = scratch;
+        p.set(x, y, z);
+        if (!level.hasChunkAt(p)) return null;
+        BlockState s = level.getBlockState(p);
+        if (s.isAir()) return null;
+
+        boolean dripstone = false;
+        int hostY;
+        if (s.is(Blocks.POINTED_DRIPSTONE)) {
+            if (!cfg.dripstoneEnabled) return null;
+            if (s.getValue(PointedDripstoneBlock.TIP_DIRECTION) != Direction.DOWN) return null;
+            if (s.getValue(PointedDripstoneBlock.THICKNESS) != DripstoneThickness.TIP) return null;
+            dripstone = true;
+            int hy = y + 1;
+            while (hy < y + 10) {
+                p.set(x, hy, z);
+                if (level.getBlockState(p).is(Blocks.POINTED_DRIPSTONE)) hy++; else break;
+            }
+            hostY = hy;
+        } else {
+            if (!cfg.caveEnabled) return null;
+            if (!s.getFluidState().isEmpty()) return null;
+            if (!s.isFaceSturdy(level, p, Direction.DOWN)) return null;
+            if (cfg.caveNaturalOnly && !isNaturalCeiling(s)) return null;
+            p.set(x, y - 1, z);
+            if (!isFree(level, p)) return null;
+            hostY = y;
+        }
+
+        // A block that is itself open to the sky is an outdoor overhang, which the rain logic handles.
+        int top = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z) - 1;
+        if (top <= hostY) return null;
+
+        int src = 0;
+        if (cfg.caveWaterEnabled) {
+            for (int k = 1; k <= cfg.caveWaterRange; k++) {
+                p.set(x, hostY + k, z);
+                if (level.getBlockState(p).getFluidState().is(FluidTags.WATER)) { src = 1; break; }
+            }
+        }
+        if (src == 0 && cfg.caveRainEnabled && top - hostY <= cfg.caveRainRange) {
+            p.set(x, top, z);
+            if (rainsHere(p)) src = 2;
+        }
+
+        if (!dripstone && src == 0) return null;
+        if (dripstone && cfg.dripstoneRequireWater && src == 0) return null;
+        return new CaveInfo(dripstone, src);
+    }
+
+    private void discoverCave(LocalPlayer player) {
+        int px = player.getBlockX(), pz = player.getBlockZ(), py = player.getBlockY();
+        int R = cfg.caveRadius;
+        for (int i = 0; i < CAVE_SAMPLES && caveSpots.size() < MAX_CAVE; i++) {
+            int x = px + rnd.nextInt(R * 2 + 1) - R;
+            int z = pz + rnd.nextInt(R * 2 + 1) - R;
+            int dx = x - px, dz = z - pz;
+            if (dx * dx + dz * dz > R * R) continue;
+            int y = py + rnd.nextInt(CAVE_V * 2 + 1) - CAVE_V;
+
+            CaveInfo info = analyzeCave(x, y, z);
+            if (info == null) continue;
+
+            long key = BlockPos.asLong(x, y, z);
+            CaveSpot sp = caveSpots.get(key);
+            if (sp == null) { sp = new CaveSpot(seedOf(key), info.dripstone(), tickCount); caveSpots.put(key, sp); }
+            sp.src = info.src();
+            sp.seen = tickCount;
+        }
+    }
+
+    private void emitCave() {
+        double maxSqr = (double) cfg.caveRadius * cfg.caveRadius;
+        boolean raining = wetness > 0.02f;
+        int bud = cfg.caveMaxParticles;
+
+        Iterator<Map.Entry<Long, CaveSpot>> it = caveSpots.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<Long, CaveSpot> entry = it.next();
+            CaveSpot sp = entry.getValue();
+            if (tickCount - sp.seen > CAVE_TTL) { it.remove(); continue; }
+
+            BlockPos pos = BlockPos.of(entry.getKey());
+            double tx = pos.getX() + 0.5 - eye.x, ty = pos.getY() + 0.5 - eye.y, tz = pos.getZ() + 0.5 - eye.z;
+            double distSqr = tx * tx + ty * ty + tz * tz;
+            if (distSqr > maxSqr + 64) { it.remove(); continue; }
+            if (distSqr > maxSqr) continue;
+            if (isBehind(tx, ty, tz, distSqr)) continue;
+
+            // Re-check now and then, so a changed ceiling stops dripping quickly.
+            long since = tickCount - sp.checked;
+            if (since >= 20 && (since >= 40 || Math.floorMod((long) sp.seed + tickCount, 5L) == 0)) {
+                CaveInfo info = analyzeCave(pos.getX(), pos.getY(), pos.getZ());
+                if (info == null || info.dripstone() != sp.dripstone) { it.remove(); continue; }
+                sp.src = info.src();
+                sp.checked = tickCount;
+                sp.seen = tickCount;
+            }
+            if (bud <= 0) continue;
+
+            float rateMul = 0.4f + 1.2f * hash(sp.seed, 5);
+            float chance;
+            float sizeMul, speedMul;
+            if (!sp.dripstone) {
+                chance = 0.0025f * cfg.caveDensity * rateMul;
+                if (sp.src == 2) {
+                    if (!raining) continue;
+                    chance *= cfg.caveRainChance * wetness;
+                }
+                sizeMul = cfg.caveDropSize;
+                speedMul = cfg.caveFallSpeed;
+            } else {
+                chance = 0.006f * cfg.dripstoneDensity * rateMul;
+                if (cfg.dripstoneRequireWater && sp.src == 2) {
+                    if (!raining) continue;
+                    chance *= cfg.caveRainChance * wetness;
+                }
+                sizeMul = cfg.dripstoneDropSize;
+                speedMul = cfg.dripstoneFallSpeed;
+            }
+            if (rnd.nextFloat() >= chance) continue;
+
+            double px, py, pz;
+            if (sp.dripstone) {
+                px = pos.getX() + 0.5; py = pos.getY() + 0.28; pz = pos.getZ() + 0.5;
+            } else {
+                px = pos.getX() + 0.15 + rnd.nextDouble() * 0.7;
+                py = pos.getY() - 0.02;
+                pz = pos.getZ() + 0.15 + rnd.nextDouble() * 0.7;
+            }
+            spawnCaveDrop(px, py, pz, sizeMul, speedMul);
+            bud--;
+            if (rnd.nextFloat() < 0.5f) playCaveSound(px, py, pz, Math.sqrt(distSqr));
+        }
+    }
+
+    private void playCaveSound(double x, double y, double z, double dist) {
+        if (!cfg.soundsEnabled || soundTokens < 1f || dist > SOUND_RANGE) return;
+        float vol = cfg.caveSoundVolume;
+        if (vol <= 0.001f) return;
+        soundTokens -= 1f;
+        float pitch = 0.7f + rnd.nextFloat() * 0.35f;
+        int copies = Math.max(1, (int) Math.ceil(vol));
+        float each = Math.min(1f, vol / copies);
+        for (int i = 0; i < copies; i++) {
+            level.playLocalSound(x, y, z, SoundEvents.POINTED_DRIPSTONE_DRIP_WATER, SoundSource.AMBIENT,
+                    each, pitch * (1f + i * 0.015f), false);
         }
     }
 

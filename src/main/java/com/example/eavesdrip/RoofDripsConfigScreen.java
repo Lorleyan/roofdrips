@@ -11,6 +11,7 @@ import dev.isxander.yacl3.api.Binding;
 import dev.isxander.yacl3.api.ConfigCategory;
 import dev.isxander.yacl3.api.Option;
 import dev.isxander.yacl3.api.OptionDescription;
+import dev.isxander.yacl3.api.OptionGroup;
 import dev.isxander.yacl3.api.YetAnotherConfigLib;
 import dev.isxander.yacl3.api.controller.EnumControllerBuilder;
 import dev.isxander.yacl3.api.controller.FloatSliderControllerBuilder;
@@ -35,6 +36,11 @@ public final class RoofDripsConfigScreen {
     private static boolean applying;
 
     private RoofDripsConfigScreen() { }
+
+    private static String compass(int deg) {
+        String[] names = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
+        return names[((int) Math.round(deg / 45.0)) % 8];
+    }
 
     // ---------------- Preset logic ----------------
     /** Called when any preset-controlled setting changes: select the matching preset, else CUSTOM. */
@@ -272,11 +278,103 @@ public final class RoofDripsConfigScreen {
         trees.add(num("Tree radius", "How far from you leaf dripping works.",
                 8, 48, 2, " blocks", c -> c.treeRadius, (c, v) -> c.treeRadius = v, false));
 
+        // ===== Cave drip =====
+        List<Option<?>> cave = new ArrayList<>();
+        cave.add(bool("Enable cave drip",
+                "Slow, subtle drips from cave ceilings where water or rain is close enough above to leak through.",
+                c -> c.caveEnabled, (c, v) -> c.caveEnabled = v, false));
+        cave.add(flt("Strength",
+                "How often cave ceilings drip. Caves are meant to be far quieter than outdoor rain, so keep this low.",
+                0.1f, 4f, 0.05f, false, c -> c.caveDensity, (c, v) -> c.caveDensity = v, false));
+        cave.add(flt("Droplet size", "Size of cave droplets.",
+                0.5f, 5f, 0.1f, false, c -> c.caveDropSize, (c, v) -> c.caveDropSize = v, false));
+        cave.add(flt("Fall speed", "How fast cave droplets fall.",
+                0.3f, 3f, 0.05f, false, c -> c.caveFallSpeed, (c, v) -> c.caveFallSpeed = v, false));
+        cave.add(num("Cave radius", "How far from you cave drips are searched for and shown.",
+                8, 40, 2, " blocks", c -> c.caveRadius, (c, v) -> c.caveRadius = v, false));
+        cave.add(num("Particle cap per tick", "Separate limit for cave drips.",
+                2, 60, 1, "", c -> c.caveMaxParticles, (c, v) -> c.caveMaxParticles = v, false));
+        cave.add(bool("Water above ceilings",
+                "Drip from ceiling blocks that have water (a lake, ocean or underground pool) within range above them.",
+                c -> c.caveWaterEnabled, (c, v) -> c.caveWaterEnabled = v, false));
+        cave.add(num("Water detection range",
+                "How many blocks above a ceiling block to look for water.",
+                1, 12, 1, " blocks", c -> c.caveWaterRange, (c, v) -> c.caveWaterRange = v, false));
+        cave.add(bool("Rain seeping through",
+                "While it rains outside, ceilings with the surface close enough above them occasionally drip, "
+              + "as if some of the rain seeps through.",
+                c -> c.caveRainEnabled, (c, v) -> c.caveRainEnabled = v, false));
+        cave.add(num("Rain detection range",
+                "How many blocks above a ceiling block the surface can be for rain to seep through.",
+                1, 12, 1, " blocks", c -> c.caveRainRange, (c, v) -> c.caveRainRange = v, false));
+        cave.add(flt("Rain seep chance",
+                "How often seeping rain drips compared to water drips. Low = only the occasional drop.",
+                0f, 1f, 0.05f, true, c -> c.caveRainChance, (c, v) -> c.caveRainChance = v, false));
+        cave.add(bool("Natural blocks only",
+                "Only natural ceilings (stone, dirt, sand, deepslate...) drip. Keeps player-built roofs and rooms dry.",
+                c -> c.caveNaturalOnly, (c, v) -> c.caveNaturalOnly = v, false));
+        cave.add(flt("Drip sound volume",
+                "Volume of cave drip sounds. Above 100% layers extra copies to make it louder. 0% = silent.",
+                0f, 3f, 0.05f, true, c -> c.caveSoundVolume, (c, v) -> c.caveSoundVolume = v, false));
+
+        List<Option<?>> dripstone = new ArrayList<>();
+        dripstone.add(bool("Drip from dripstone",
+                "Water drops fall from the tips of hanging pointed dripstone.",
+                c -> c.dripstoneEnabled, (c, v) -> c.dripstoneEnabled = v, false));
+        dripstone.add(bool("Only with water above",
+                "Only drip when water (or seeping rain) is above the dripstone, like in vanilla. "
+              + "Off = every hanging dripstone tip drips.",
+                c -> c.dripstoneRequireWater, (c, v) -> c.dripstoneRequireWater = v, false));
+        dripstone.add(flt("Dripstone strength", "How often dripstone tips drip.",
+                0.1f, 4f, 0.05f, false, c -> c.dripstoneDensity, (c, v) -> c.dripstoneDensity = v, false));
+        dripstone.add(flt("Dripstone droplet size", "Size of dripstone droplets.",
+                0.5f, 5f, 0.1f, false, c -> c.dripstoneDropSize, (c, v) -> c.dripstoneDropSize = v, false));
+        dripstone.add(flt("Dripstone fall speed", "How fast dripstone droplets fall.",
+                0.3f, 3f, 0.05f, false, c -> c.dripstoneFallSpeed, (c, v) -> c.dripstoneFallSpeed = v, false));
+
+        // ===== Wind =====
+        List<Option<?>> wind = new ArrayList<>();
+        wind.add(bool("Enable wind",
+                "Blows falling droplets sideways. Minecraft has no wind of its own, so this is a simulation "
+              + "that only affects this mod's water. Off by default.",
+                c -> c.windEnabled, (c, v) -> c.windEnabled = v, false));
+        wind.add(flt("Wind strength", "How hard the wind pushes droplets.",
+                0f, 3f, 0.05f, false, c -> c.windStrength, (c, v) -> c.windStrength = v, false));
+        wind.add(numFmt("Wind direction",
+                "The compass direction the wind blows TOWARD (0 = north, 90 = east, 180 = south, 270 = west).",
+                0, 355, 5, v -> v + "\u00B0 " + compass(v),
+                c -> c.windDirection, (c, v) -> c.windDirection = v, false));
+        wind.add(flt("Direction drift",
+                "How much the wind direction slowly wanders around the chosen direction. 0% = fixed direction.",
+                0f, 1f, 0.05f, true, c -> c.windDriftAmount, (c, v) -> c.windDriftAmount = v, false));
+        wind.add(bool("New direction each storm",
+                "Picks a random wind direction every time rain starts, instead of using the direction above.",
+                c -> c.windRandomPerStorm, (c, v) -> c.windRandomPerStorm = v, false));
+        wind.add(bool("Storms are windier",
+                "Thunderstorms blow up to 50% harder than ordinary rain.",
+                c -> c.windStormBoost, (c, v) -> c.windStormBoost = v, false));
+        wind.add(flt("Turbulence",
+                "Random jitter so droplets don't all travel in perfectly parallel lines.",
+                0f, 1f, 0.05f, true, c -> c.windTurbulence, (c, v) -> c.windTurbulence = v, false));
+        wind.add(flt("Gust frequency",
+                "How often gusts happen. 0% = no gusts. 100% = roughly one every few seconds.",
+                0f, 1f, 0.05f, true, c -> c.gustFrequency, (c, v) -> c.gustFrequency = v, false));
+        wind.add(flt("Gust strength",
+                "How much extra push a gust gives, on top of the normal wind.",
+                0f, 3f, 0.05f, true, c -> c.gustStrength, (c, v) -> c.gustStrength = v, false));
+        wind.add(num("Gust duration",
+                "How long a typical gust lasts. Gusts swell and fade smoothly.",
+                1, 10, 1, " s", c -> c.gustDuration, (c, v) -> c.gustDuration = v, false));
+
         return YetAnotherConfigLib.createBuilder()
                 .title(Component.literal("Roof Drips"))
                 .category(ConfigCategory.createBuilder().name(Component.literal("General")).options(general).build())
                 .category(ConfigCategory.createBuilder().name(Component.literal("Overhang Streams & Drips")).options(edge).build())
                 .category(ConfigCategory.createBuilder().name(Component.literal("Block-Face Streaks")).options(face).build())
+                .category(ConfigCategory.createBuilder().name(Component.literal("Cave Drip")).options(cave)
+                        .group(OptionGroup.createBuilder().name(Component.literal("Dripstone")).options(dripstone).build())
+                        .build())
+                .category(ConfigCategory.createBuilder().name(Component.literal("Wind")).options(wind).build())
                 .category(ConfigCategory.createBuilder().name(Component.literal("Sounds")).options(sound).build())
                 .category(ConfigCategory.createBuilder().name(Component.literal("Trees")).options(trees).build())
                 .save(() -> {
