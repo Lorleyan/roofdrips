@@ -23,7 +23,6 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.PointedDripstoneBlock;
-import net.minecraft.world.level.block.state.properties.DripstoneThickness;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
@@ -685,7 +684,7 @@ public class EavesDripClient implements ClientModInitializer {
         if (s.is(Blocks.POINTED_DRIPSTONE)) {
             if (!cfg.dripstoneEnabled) return null;
             if (s.getValue(PointedDripstoneBlock.TIP_DIRECTION) != Direction.DOWN) return null;
-            if (s.getValue(PointedDripstoneBlock.THICKNESS) != DripstoneThickness.TIP) return null;
+            if (!s.getValue(PointedDripstoneBlock.THICKNESS).toString().equalsIgnoreCase("tip")) return null;
             dripstone = true;
             int hy = y + 1;
             while (hy < y + 10) {
