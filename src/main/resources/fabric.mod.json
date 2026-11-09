@@ -3,17 +3,23 @@
   "id": "roofdrips",
   "version": "${version}",
   "name": "Roof Drips",
-  "description": "Rain runs off roof edges, overhangs and cave mouths in thin falling streams.",
+  "description": "Rain runs off roof edges, overhangs and cave mouths in streams and drips. Configure via Mod Menu.",
   "authors": ["You"],
   "license": "MIT",
   "environment": "client",
   "entrypoints": {
-    "client": ["com.example.eavesdrip.EavesDripClient"]
+    "main": ["com.example.eavesdrip.RoofDripsMod"],
+    "client": ["com.example.eavesdrip.EavesDripClient"],
+    "modmenu": ["com.example.eavesdrip.RoofDripsModMenu"]
   },
   "depends": {
     "fabricloader": ">=0.19.5",
     "minecraft": "~26.3",
     "java": ">=25",
     "fabric-api": "*"
+  },
+  "suggests": {
+    "modmenu": "*",
+    "yet_another_config_lib_v3": "*"
   }
 }
