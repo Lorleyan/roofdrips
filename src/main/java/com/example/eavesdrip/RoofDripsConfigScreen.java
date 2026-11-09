@@ -166,10 +166,18 @@ public final class RoofDripsConfigScreen {
         edge.add(flt("Overall density",
                 "How much water falls from overhang edges. Affects both drips and streams.",
                 0.1f, 4f, 0.05f, false, c -> c.density, (c, v) -> c.density = v, true));
-        edge.add(flt("Streams vs. drips",
-                "0% = every edge only drips. 100% = every edge runs as a stream. In between gives a natural mix, "
-              + "some spots stream while others just drip.",
+        edge.add(num("Overhang thickness",
+                "How many stacked blocks tall an overhang can be and still drip. Arches and cave mouths are often "
+              + "several blocks thick. 1 = only single-block overhangs.",
+                1, 8, 1, " blocks", c -> c.overhangDepth, (c, v) -> c.overhangDepth = v, false));
+        edge.add(flt("Stream amount",
+                "The average share of streaming versus dripping. 0% = edges mostly drip. 100% = edges run as "
+              + "constant streams. Each edge gets its own blend around this average.",
                 0f, 1f, 0.05f, true, c -> c.streamShare, (c, v) -> c.streamShare = v, true));
+        edge.add(flt("Edge variation",
+                "How different edges look from each other. Low = all edges behave alike. High = some edges "
+              + "pour while their neighbours only drip.",
+                0f, 1f, 0.05f, true, c -> c.edgeVariation, (c, v) -> c.edgeVariation = v, true));
         edge.add(num("Stream length",
                 "How long each stream runs before pausing. Longer = more continuous ribbons of water.",
                 1, 10, 1, "", c -> c.streamLength, (c, v) -> c.streamLength = v, true));
@@ -184,7 +192,7 @@ public final class RoofDripsConfigScreen {
                 0f, 1f, 0.05f, true, c -> c.fallSpeedVar, (c, v) -> c.fallSpeedVar = v, true));
         edge.add(flt("Droplet size",
                 "Size of the falling droplets.",
-                0.5f, 2.5f, 0.05f, false, c -> c.dropSize, (c, v) -> c.dropSize = v, true));
+                0.5f, 5f, 0.1f, false, c -> c.dropSize, (c, v) -> c.dropSize = v, true));
         edge.add(bool("Ground splashes",
                 "Tiny splashes where droplets land. Looks nice, costs a bit.",
                 c -> c.splashes, (c, v) -> c.splashes = v, true));
@@ -213,10 +221,10 @@ public final class RoofDripsConfigScreen {
         sound.add(bool("Enable sounds",
                 "Soft drip and trickle sounds near overhangs. Also follows Minecraft's Weather volume slider.",
                 c -> c.soundsEnabled, (c, v) -> c.soundsEnabled = v, false));
-        sound.add(flt("Drip volume", "Volume of individual drips.",
-                0f, 1f, 0.05f, true, c -> c.dripVolume, (c, v) -> c.dripVolume = v, false));
-        sound.add(flt("Stream volume", "Volume of the trickle sound for running streams.",
-                0f, 1f, 0.05f, true, c -> c.streamVolume, (c, v) -> c.streamVolume = v, false));
+        sound.add(flt("Drip volume", "Volume of individual drips. Above 100% layers extra copies of the sound to make it louder.",
+                0f, 3f, 0.05f, true, c -> c.dripVolume, (c, v) -> c.dripVolume = v, false));
+        sound.add(flt("Stream volume", "Volume of the trickle sound for running streams. Above 100% layers extra copies to make it louder.",
+                0f, 3f, 0.05f, true, c -> c.streamVolume, (c, v) -> c.streamVolume = v, false));
         sound.add(num("Sound limit",
                 "Maximum drip/trickle sounds per second. Keeps it pleasant and light on performance.",
                 1, 30, 1, "/s", c -> c.maxSoundsPerSecond, (c, v) -> c.maxSoundsPerSecond = v, false));
