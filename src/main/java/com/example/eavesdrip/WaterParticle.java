@@ -10,14 +10,17 @@ import net.minecraft.core.particles.SimpleParticleType;
 import net.minecraft.util.RandomSource;
 
 /**
- * One class, two behaviours.
- *  falling = true : water droplet. Parameters: size, fall-speed multiplier, opacity.
- *  falling = false: fading dot.    Parameters: size, lifetime in ticks, opacity.
+ * One class, three behaviours.
+ *  falling          : water droplet. Parameters: size, fall-speed multiplier, opacity.
+ *  dot (blocky)     : fading square dot.   Parameters: size, lifetime in ticks, opacity.
+ *  dot (soft)       : soft round dot that shrinks and fades, so a row of them reads as a tapering smear.
  */
 public class WaterParticle extends SingleQuadParticle {
 
     private final boolean falling;
+    private final boolean soft;
     private final float baseAlpha;
+    private final float baseSize;
     private final boolean splash;
     private final float windFactor;
 
@@ -25,10 +28,12 @@ public class WaterParticle extends SingleQuadParticle {
     public static float pendingWind = 0f;
 
     protected WaterParticle(ClientLevel level, double x, double y, double z, SpriteSet sprites,
-                            boolean falling, float size, float p1, float alpha) {
+                            boolean falling, boolean soft, float size, float p1, float alpha) {
         super(level, x, y, z, sprites.first());
         this.falling = falling;
+        this.soft = soft;
         this.baseAlpha = alpha;
+        this.baseSize = size;
         this.windFactor = falling ? pendingWind : 0f;
         if (falling) pendingWind = 0f;
         this.xd = 0;
@@ -85,6 +90,7 @@ public class WaterParticle extends SingleQuadParticle {
         } else {
             float t = (float) this.age / (float) this.lifetime;
             this.setAlpha(baseAlpha * (1f - t) * (1f - t));
+            if (soft) this.quadSize = baseSize * (1f - 0.7f * t);   // the tail narrows as it fades
         }
     }
 
@@ -95,7 +101,7 @@ public class WaterParticle extends SingleQuadParticle {
         @Override
         public Particle createParticle(SimpleParticleType type, ClientLevel level, double x, double y, double z,
                                        double vx, double vy, double vz, RandomSource random) {
-            return new WaterParticle(level, x, y, z, sprites, true, (float) vx, (float) vy, (float) vz);
+            return new WaterParticle(level, x, y, z, sprites, true, false, (float) vx, (float) vy, (float) vz);
         }
     }
 
@@ -106,7 +112,18 @@ public class WaterParticle extends SingleQuadParticle {
         @Override
         public Particle createParticle(SimpleParticleType type, ClientLevel level, double x, double y, double z,
                                        double vx, double vy, double vz, RandomSource random) {
-            return new WaterParticle(level, x, y, z, sprites, false, (float) vx, (float) vy, (float) vz);
+            return new WaterParticle(level, x, y, z, sprites, false, false, (float) vx, (float) vy, (float) vz);
+        }
+    }
+
+    public static class SoftDotProvider implements ParticleProvider<SimpleParticleType> {
+        private final SpriteSet sprites;
+        public SoftDotProvider(SpriteSet sprites) { this.sprites = sprites; }
+
+        @Override
+        public Particle createParticle(SimpleParticleType type, ClientLevel level, double x, double y, double z,
+                                       double vx, double vy, double vz, RandomSource random) {
+            return new WaterParticle(level, x, y, z, sprites, false, true, (float) vx, (float) vy, (float) vz);
         }
     }
 }

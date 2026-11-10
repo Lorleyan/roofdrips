@@ -69,6 +69,8 @@ public class EavesDripClient implements ClientModInitializer {
         double v, v0, vTarget;          // downward speed (blocks per tick)
         int trail, steerTimer, speedTimer;
         boolean wander;
+        double ox, oy, oz;              // where the streak head was last tick (for the smooth style)
+        boolean init;
     }
 
     private record Roof(int lowY, int thick, int mask, float bottom) { }
@@ -78,6 +80,7 @@ public class EavesDripClient implements ClientModInitializer {
         final int seed;
         final boolean dripstone;
         int src;
+        int burst;      // dripstone water stream: ticks left
         long seen, checked;
         CaveSpot(int seed, boolean dripstone, long now) { this.seed = seed; this.dripstone = dripstone; this.checked = now; }
     }
@@ -112,6 +115,7 @@ public class EavesDripClient implements ClientModInitializer {
     public void onInitializeClient() {
         ParticleProviderRegistry.getInstance().register(RoofDripsMod.DROP, WaterParticle.DropProvider::new);
         ParticleProviderRegistry.getInstance().register(RoofDripsMod.DOT, WaterParticle.DotProvider::new);
+        ParticleProviderRegistry.getInstance().register(RoofDripsMod.DOT_SOFT, WaterParticle.SoftDotProvider::new);
         ClientTickEvents.END_CLIENT_TICK.register(this::onTick);
     }
 
@@ -140,8 +144,8 @@ public class EavesDripClient implements ClientModInitializer {
         rnd = level.getRandom();
         eye = player.getEyePosition();
         look = player.getLookAngle();
-        roofBudget = cfg.maxParticles;
-        leafBudget = cfg.treeMaxParticles;
+        roofBudget = cfg.effectiveRoofCap();
+        leafBudget = cfg.effectiveTreeCap();
         soundTokens = Math.min(4f, soundTokens + cfg.maxSoundsPerSecond / 20f);
 
         updateWind(wet, level.getThunderLevel(1.0f));
@@ -580,6 +584,7 @@ public class EavesDripClient implements ClientModInitializer {
     }
 
     private void updateStreaks() {
+        boolean smooth = cfg.streakStyle == RoofDripsConfig.StreakStyle.SMOOTH;
         Iterator<Streak> it = streaks.iterator();
         while (it.hasNext()) {
             Streak s = it.next();
@@ -604,6 +609,10 @@ public class EavesDripClient implements ClientModInitializer {
                 s.v += (s.vTarget - s.v) * 0.2;
             }
 
+            if (!s.init) {
+                s.ox = s.bx + s.tx * s.lat; s.oy = s.y; s.oz = s.bz + s.tz * s.lat;
+                s.init = true;
+            }
             s.y -= s.v;
             double x = s.bx + s.tx * s.lat, z = s.bz + s.tz * s.lat;
             if (s.y <= s.bottom) {
@@ -611,10 +620,29 @@ public class EavesDripClient implements ClientModInitializer {
                 it.remove();
                 continue;
             }
-            if (roofBudget > 0) {
+
+            if (smooth) {
+                // Smooth style: fill the whole path travelled this tick with soft overlapping dots, so there are no
+                // gaps at any speed. Older dots shrink and fade, which gives the tail; a brighter head leads it.
+                float size = 0.022f * cfg.dropSize * 1.4f;
+                double dx = x - s.ox, dy = s.y - s.oy, dz = z - s.oz;
+                double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                int n = (int) Math.min(8, Math.max(1, Math.ceil(dist / (size * 0.9))));
+                for (int i = 1; i <= n && roofBudget > 0; i++) {
+                    double f = i / (double) n;
+                    level.addParticle(RoofDripsMod.DOT_SOFT, s.ox + dx * f, s.oy + dy * f, s.oz + dz * f,
+                            size, s.trail, cfg.opacity * 0.9f);
+                    roofBudget--;
+                }
+                if (roofBudget > 0) {
+                    level.addParticle(RoofDripsMod.DOT_SOFT, x, s.y, z, size * 1.35f, 3, cfg.opacity);
+                    roofBudget--;
+                }
+            } else if (roofBudget > 0) {
                 level.addParticle(RoofDripsMod.DOT, x, s.y, z, 0.022f * cfg.dropSize, s.trail, cfg.opacity * 0.85f);
                 roofBudget--;
             }
+            s.ox = x; s.oy = s.y; s.oz = z;
         }
     }
 
@@ -726,7 +754,11 @@ public class EavesDripClient implements ClientModInitializer {
     private void discoverCave(LocalPlayer player) {
         int px = player.getBlockX(), pz = player.getBlockZ(), py = player.getBlockY();
         int R = cfg.caveRadius;
-        for (int i = 0; i < CAVE_SAMPLES && caveSpots.size() < MAX_CAVE; i++) {
+        // A bigger radius covers far more ground, so search harder and keep more spots in memory.
+        double scale = Math.pow(R / 20.0, 1.5);
+        int samples = (int) Math.min(900, Math.max(40, Math.round(CAVE_SAMPLES * scale)));
+        int maxSpots = (int) Math.min(6000, Math.round(MAX_CAVE * Math.max(1.0, scale)));
+        for (int i = 0; i < samples && caveSpots.size() < maxSpots; i++) {
             int x = px + rnd.nextInt(R * 2 + 1) - R;
             int z = pz + rnd.nextInt(R * 2 + 1) - R;
             int dx = x - px, dz = z - pz;
@@ -747,7 +779,9 @@ public class EavesDripClient implements ClientModInitializer {
     private void emitCave() {
         double maxSqr = (double) cfg.caveRadius * cfg.caveRadius;
         boolean raining = wetness > 0.02f;
-        int bud = cfg.caveMaxParticles;
+        int bud = cfg.effectiveCaveCap();
+        // Seeping-rain intensity curve: 25% = occasional, 50% = definite visible dripping, 100% = near constant.
+        float seep = (float) (0.03 * Math.pow(cfg.caveRainChance, 2.3));
 
         Iterator<Map.Entry<Long, CaveSpot>> it = caveSpots.entrySet().iterator();
         while (it.hasNext()) {
@@ -774,13 +808,32 @@ public class EavesDripClient implements ClientModInitializer {
             if (bud <= 0) continue;
 
             float rateMul = 0.4f + 1.2f * hash(sp.seed, 5);
+
+            // Occasional water streams from dripstone tips.
+            if (sp.dripstone && cfg.dripstoneStreams) {
+                if (sp.burst > 0) {
+                    sp.burst--;
+                    spawnCaveDrop(pos.getX() + 0.5 + (rnd.nextDouble() - 0.5) * 0.05, pos.getY() + 0.28,
+                            pos.getZ() + 0.5 + (rnd.nextDouble() - 0.5) * 0.05,
+                            cfg.dripstoneDropSize, cfg.dripstoneFallSpeed);
+                    bud--;
+                    continue;
+                }
+                boolean streamOk = !cfg.dripstoneRequireWater || sp.src == 1 || (sp.src == 2 && raining);
+                if (streamOk && rnd.nextFloat() < 0.02f * cfg.dripstoneStreamFreq * rateMul) {
+                    sp.burst = 20 + rnd.nextInt(40);
+                    playCaveSound(pos.getX() + 0.5, pos.getY() + 0.28, pos.getZ() + 0.5, Math.sqrt(distSqr));
+                }
+            }
+
             float chance;
             float sizeMul, speedMul;
             if (!sp.dripstone) {
-                chance = 0.0025f * cfg.caveDensity * rateMul;
                 if (sp.src == 2) {
                     if (!raining) continue;
-                    chance *= cfg.caveRainChance * wetness;
+                    chance = seep * cfg.caveDensity * rateMul * wetness;
+                } else {
+                    chance = 0.0025f * cfg.caveDensity * rateMul;
                 }
                 sizeMul = cfg.caveDropSize;
                 speedMul = cfg.caveFallSpeed;

@@ -14,6 +14,8 @@ public class RoofDripsMod implements ModInitializer {
     public static final SimpleParticleType DROP = FabricParticleTypes.simple();
     /** A stationary fading dot, used to draw streaks running down block faces. */
     public static final SimpleParticleType DOT = FabricParticleTypes.simple();
+    /** Soft, tapering version of the streak dot, used by the "Smooth" streak style. */
+    public static final SimpleParticleType DOT_SOFT = FabricParticleTypes.simple();
 
     @Override
     public void onInitialize() {
@@ -21,5 +23,7 @@ public class RoofDripsMod implements ModInitializer {
                 Identifier.fromNamespaceAndPath("roofdrips", "water_drop"), DROP);
         Registry.register(BuiltInRegistries.PARTICLE_TYPE,
                 Identifier.fromNamespaceAndPath("roofdrips", "water_dot"), DOT);
+        Registry.register(BuiltInRegistries.PARTICLE_TYPE,
+                Identifier.fromNamespaceAndPath("roofdrips", "water_streak"), DOT_SOFT);
     }
 }
