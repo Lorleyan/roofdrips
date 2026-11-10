@@ -19,6 +19,7 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.FluidTags;
+import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Blocks;
@@ -69,8 +70,6 @@ public class EavesDripClient implements ClientModInitializer {
         double v, v0, vTarget;          // downward speed (blocks per tick)
         int trail, steerTimer, speedTimer;
         boolean wander;
-        double ox, oy, oz;              // where the streak head was last tick (for the smooth style)
-        boolean init;
     }
 
     private record Roof(int lowY, int thick, int mask, float bottom) { }
@@ -115,7 +114,6 @@ public class EavesDripClient implements ClientModInitializer {
     public void onInitializeClient() {
         ParticleProviderRegistry.getInstance().register(RoofDripsMod.DROP, WaterParticle.DropProvider::new);
         ParticleProviderRegistry.getInstance().register(RoofDripsMod.DOT, WaterParticle.DotProvider::new);
-        ParticleProviderRegistry.getInstance().register(RoofDripsMod.DOT_SOFT, WaterParticle.SoftDotProvider::new);
         ClientTickEvents.END_CLIENT_TICK.register(this::onTick);
     }
 
@@ -584,7 +582,6 @@ public class EavesDripClient implements ClientModInitializer {
     }
 
     private void updateStreaks() {
-        boolean smooth = cfg.streakStyle == RoofDripsConfig.StreakStyle.SMOOTH;
         Iterator<Streak> it = streaks.iterator();
         while (it.hasNext()) {
             Streak s = it.next();
@@ -609,10 +606,6 @@ public class EavesDripClient implements ClientModInitializer {
                 s.v += (s.vTarget - s.v) * 0.2;
             }
 
-            if (!s.init) {
-                s.ox = s.bx + s.tx * s.lat; s.oy = s.y; s.oz = s.bz + s.tz * s.lat;
-                s.init = true;
-            }
             s.y -= s.v;
             double x = s.bx + s.tx * s.lat, z = s.bz + s.tz * s.lat;
             if (s.y <= s.bottom) {
@@ -620,29 +613,10 @@ public class EavesDripClient implements ClientModInitializer {
                 it.remove();
                 continue;
             }
-
-            if (smooth) {
-                // Smooth style: fill the whole path travelled this tick with soft overlapping dots, so there are no
-                // gaps at any speed. Older dots shrink and fade, which gives the tail; a brighter head leads it.
-                float size = 0.022f * cfg.dropSize * 1.4f;
-                double dx = x - s.ox, dy = s.y - s.oy, dz = z - s.oz;
-                double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-                int n = (int) Math.min(8, Math.max(1, Math.ceil(dist / (size * 0.9))));
-                for (int i = 1; i <= n && roofBudget > 0; i++) {
-                    double f = i / (double) n;
-                    level.addParticle(RoofDripsMod.DOT_SOFT, s.ox + dx * f, s.oy + dy * f, s.oz + dz * f,
-                            size, s.trail, cfg.opacity * 0.9f);
-                    roofBudget--;
-                }
-                if (roofBudget > 0) {
-                    level.addParticle(RoofDripsMod.DOT_SOFT, x, s.y, z, size * 1.35f, 3, cfg.opacity);
-                    roofBudget--;
-                }
-            } else if (roofBudget > 0) {
+            if (roofBudget > 0) {
                 level.addParticle(RoofDripsMod.DOT, x, s.y, z, 0.022f * cfg.dropSize, s.trail, cfg.opacity * 0.85f);
                 roofBudget--;
             }
-            s.ox = x; s.oy = s.y; s.oz = z;
         }
     }
 
@@ -776,6 +750,17 @@ public class EavesDripClient implements ClientModInitializer {
         }
     }
 
+    /**
+     * Pointed dripstone is drawn with a small random sideways offset (up to 1/8 of a block) that depends on its
+     * position. This reproduces that offset so the water starts exactly at the visible tip.
+     */
+    private static double[] dripstoneXZ(BlockPos pos) {
+        long seed = Mth.getSeed(pos.getX(), 0, pos.getZ());
+        double dx = Mth.clamp(((double) ((float) (seed & 15L) / 15.0F) - 0.5) * 0.5, -0.125, 0.125);
+        double dz = Mth.clamp(((double) ((float) (seed >> 8 & 15L) / 15.0F) - 0.5) * 0.5, -0.125, 0.125);
+        return new double[] { pos.getX() + 0.5 + dx, pos.getZ() + 0.5 + dz };
+    }
+
     private void emitCave() {
         double maxSqr = (double) cfg.caveRadius * cfg.caveRadius;
         boolean raining = wetness > 0.02f;
@@ -813,8 +798,9 @@ public class EavesDripClient implements ClientModInitializer {
             if (sp.dripstone && cfg.dripstoneStreams) {
                 if (sp.burst > 0) {
                     sp.burst--;
-                    spawnCaveDrop(pos.getX() + 0.5 + (rnd.nextDouble() - 0.5) * 0.05, pos.getY() + 0.28,
-                            pos.getZ() + 0.5 + (rnd.nextDouble() - 0.5) * 0.05,
+                    double[] tip = dripstoneXZ(pos);
+                    spawnCaveDrop(tip[0] + (rnd.nextDouble() - 0.5) * 0.03, pos.getY() + 0.30,
+                            tip[1] + (rnd.nextDouble() - 0.5) * 0.03,
                             cfg.dripstoneDropSize, cfg.dripstoneFallSpeed);
                     bud--;
                     continue;
@@ -822,7 +808,8 @@ public class EavesDripClient implements ClientModInitializer {
                 boolean streamOk = !cfg.dripstoneRequireWater || sp.src == 1 || (sp.src == 2 && raining);
                 if (streamOk && rnd.nextFloat() < 0.02f * cfg.dripstoneStreamFreq * rateMul) {
                     sp.burst = 20 + rnd.nextInt(40);
-                    playCaveSound(pos.getX() + 0.5, pos.getY() + 0.28, pos.getZ() + 0.5, Math.sqrt(distSqr));
+                    double[] tip = dripstoneXZ(pos);
+                    playCaveSound(tip[0], pos.getY() + 0.30, tip[1], Math.sqrt(distSqr));
                 }
             }
 
@@ -850,7 +837,8 @@ public class EavesDripClient implements ClientModInitializer {
 
             double px, py, pz;
             if (sp.dripstone) {
-                px = pos.getX() + 0.5; py = pos.getY() + 0.28; pz = pos.getZ() + 0.5;
+                double[] tip = dripstoneXZ(pos);
+                px = tip[0]; py = pos.getY() + 0.30; pz = tip[1];
             } else {
                 px = pos.getX() + 0.15 + rnd.nextDouble() * 0.7;
                 py = pos.getY() - 0.02;
@@ -864,36 +852,23 @@ public class EavesDripClient implements ClientModInitializer {
 
     private void playCaveSound(double x, double y, double z, double dist) {
         if (!cfg.soundsEnabled || soundTokens < 1f || dist > SOUND_RANGE) return;
-        float vol = cfg.caveSoundVolume;
+        float vol = Math.min(1f, cfg.caveSoundVolume);
         if (vol <= 0.001f) return;
         soundTokens -= 1f;
         float pitch = 0.7f + rnd.nextFloat() * 0.35f;
-        int copies = Math.max(1, (int) Math.ceil(vol));
-        float each = Math.min(1f, vol / copies);
-        for (int i = 0; i < copies; i++) {
-            level.playLocalSound(x, y, z, SoundEvents.POINTED_DRIPSTONE_DRIP_WATER, SoundSource.AMBIENT,
-                    each, pitch * (1f + i * 0.015f), false);
-        }
+        level.playLocalSound(x, y, z, SoundEvents.POINTED_DRIPSTONE_DRIP_WATER, SoundSource.AMBIENT, vol, pitch, false);
     }
 
     // ================= Sound =================
-    /**
-     * Minecraft never plays a single sound louder than its category slider allows, so for volumes above 100%
-     * we layer extra copies of the sound on top of each other. That is what actually makes it louder.
-     */
+    /** 100% is Minecraft's loudest possible volume for a sound. Nothing is ever boosted beyond it. */
     private void playSound(double x, double y, double z, boolean stream, double dist) {
         if (!cfg.soundsEnabled || soundTokens < 1f || dist > SOUND_RANGE) return;
-        float vol = stream ? cfg.streamVolume : cfg.dripVolume;
+        float vol = Math.min(1f, stream ? cfg.streamVolume : cfg.dripVolume);
         if (vol <= 0.001f) return;
         soundTokens -= 1f;
 
         SoundEvent ev = stream ? SoundEvents.WATER_AMBIENT : SoundEvents.POINTED_DRIPSTONE_DRIP_WATER;
-        float basePitch = stream ? 1.0f + rnd.nextFloat() * 0.4f : 0.85f + rnd.nextFloat() * 0.5f;
-        float gain = vol * (0.5f + 0.5f * wetness);
-        int copies = Math.max(1, (int) Math.ceil(gain));
-        float each = Math.min(1f, gain / copies);
-        for (int i = 0; i < copies; i++) {
-            level.playLocalSound(x, y, z, ev, SoundSource.WEATHER, each, basePitch * (1f + i * 0.015f), false);
-        }
+        float pitch = stream ? 1.0f + rnd.nextFloat() * 0.4f : 0.85f + rnd.nextFloat() * 0.5f;
+        level.playLocalSound(x, y, z, ev, SoundSource.WEATHER, vol, pitch, false);
     }
 }

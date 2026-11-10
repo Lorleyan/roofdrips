@@ -9,7 +9,6 @@ import java.util.function.Function;
 import java.util.function.IntFunction;
 
 import com.example.eavesdrip.RoofDripsConfig.Preset;
-import com.example.eavesdrip.RoofDripsConfig.StreakStyle;
 
 import dev.isxander.yacl3.api.Binding;
 import dev.isxander.yacl3.api.ButtonOption;
@@ -56,7 +55,7 @@ public final class RoofDripsConfigScreen {
             Map.entry("Amount", 2.5f),
             Map.entry("Overhang thickness", 19.5f),
             Map.entry("Sound limit", 15f),
-            Map.entry("Tree density", 2.5f),
+            Map.entry("Tree density", 4f),
             Map.entry("Tree particle cap per tick", 100f),
             Map.entry("Tree radius", 32f),
             Map.entry("Cave radius", 40f),
@@ -364,18 +363,6 @@ public final class RoofDripsConfigScreen {
 
         // ===== Block-face streaks =====
         List<Option<?>> face = new ArrayList<>();
-        Option<StreakStyle> styleOpt = Option.<StreakStyle>createBuilder()
-                .name(Component.literal("Streak style"))
-                .description(OptionDescription.of(Component.literal(
-                        "Blocky: the classic square-dot look that fits vanilla Minecraft. "
-                      + "Smooth: soft, overlapping drops with a tapering tail and no gaps at any speed, "
-                      + "suited to shader packs and realistic builds.")))
-                .binding(Binding.generic(DEF.streakStyle, () -> CFG.streakStyle, v -> CFG.streakStyle = v))
-                .controller(opt -> EnumControllerBuilder.create(opt).enumClass(StreakStyle.class)
-                        .formatValue(v -> Component.literal(v == StreakStyle.SMOOTH ? "Smooth (realistic)" : "Blocky (vanilla)")))
-                .build();
-        ALL.add(styleOpt);
-        face.add(styleOpt);
         face.add(flt("Amount",
                 "How many streaks run down the face of overhang blocks. 0% turns them off completely. "
               + "Lower this if you raise the overhang density and it gets too busy." + RED_NOTE,
@@ -405,10 +392,10 @@ public final class RoofDripsConfigScreen {
         sound.add(bool("Enable sounds",
                 "Soft drip and trickle sounds near overhangs. Also follows Minecraft's Weather volume slider.",
                 c -> c.soundsEnabled, (c, v) -> c.soundsEnabled = v, false));
-        sound.add(flt("Drip volume", "Volume of individual drips. Above 100% layers extra copies of the sound to make it louder.",
-                0f, 3f, 0.05f, true, c -> c.dripVolume, (c, v) -> c.dripVolume = v, false));
-        sound.add(flt("Stream volume", "Volume of the trickle sound for running streams. Above 100% layers extra copies to make it louder.",
-                0f, 3f, 0.05f, true, c -> c.streamVolume, (c, v) -> c.streamVolume = v, false));
+        sound.add(flt("Drip volume", "Volume of individual drips. 100% is the loudest Minecraft can play a sound.",
+                0f, 1f, 0.05f, true, c -> c.dripVolume, (c, v) -> c.dripVolume = v, false));
+        sound.add(flt("Stream volume", "Volume of the trickle sound for running streams. 100% is the loudest Minecraft can play a sound.",
+                0f, 1f, 0.05f, true, c -> c.streamVolume, (c, v) -> c.streamVolume = v, false));
         sound.add(num("Sound limit",
                 "Maximum drip/trickle sounds per second. Keeps it pleasant and light on performance." + RED_NOTE,
                 1, 30, 1, "/s", c -> c.maxSoundsPerSecond, (c, v) -> c.maxSoundsPerSecond = v, false));
@@ -419,7 +406,7 @@ public final class RoofDripsConfigScreen {
                 "Rain drips off the underside and edges of leaves. No streaks on leaves, only falling drops. Off by default.",
                 c -> c.treesEnabled, (c, v) -> c.treesEnabled = v, false));
         trees.add(flt("Tree density", "How much water drips from leaves." + RED_NOTE,
-                0.1f, 4f, 0.05f, false, c -> c.treeDensity, (c, v) -> c.treeDensity = v, false));
+                0.1f, 6f, 0.05f, false, c -> c.treeDensity, (c, v) -> c.treeDensity = v, false));
         trees.add(numFmt("Tree particle cap per tick",
                 "Separate limit for leaf drips so forests can't hog performance. Auto scales with Tree density." + RED_NOTE,
                 0, 200, 5, v -> v == 0 ? "Auto" : "" + v, c -> c.treeMaxParticles, (c, v) -> c.treeMaxParticles = v, false));
@@ -466,8 +453,8 @@ public final class RoofDripsConfigScreen {
                 "Only natural ceilings (stone, dirt, sand, deepslate...) drip. Keeps player-built roofs and rooms dry.",
                 c -> c.caveNaturalOnly, (c, v) -> c.caveNaturalOnly = v, false));
         cave.add(flt("Drip sound volume",
-                "Volume of cave drip sounds. Above 100% layers extra copies to make it louder. 0% = silent.",
-                0f, 3f, 0.05f, true, c -> c.caveSoundVolume, (c, v) -> c.caveSoundVolume = v, false));
+                "Volume of cave drip sounds. 100% is the loudest Minecraft can play a sound. 0% = silent.",
+                0f, 1f, 0.05f, true, c -> c.caveSoundVolume, (c, v) -> c.caveSoundVolume = v, false));
 
         List<Option<?>> dripstone = new ArrayList<>();
         dripstone.add(bool("Drip from dripstone",
