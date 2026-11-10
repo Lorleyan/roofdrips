@@ -125,7 +125,7 @@ public final class RoofDripsConfigScreen {
     }
 
     private static void reopen() {
-        Minecraft.getInstance().setScreen(create(PARENT));
+        Minecraft.getInstance().gui.setScreen(create(PARENT));
     }
 
     private static String cleanName(String raw) {
