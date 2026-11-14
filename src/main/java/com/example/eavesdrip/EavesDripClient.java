@@ -182,6 +182,19 @@ public class EavesDripClient implements ClientModInitializer {
 
     /** A made-up wind: a base direction that slowly drifts, plus smooth gusts. Vanilla Minecraft has no wind. */
     private void updateWind(boolean wet, float thunder) {
+        // Another mod (Living Rain) may take over the wind. It returns {1, x, z, turbulence}, or null to stay out of it.
+        float[] ov = WindOverrides.poll();
+        if (ov != null) {
+            Wind.overridden = true;
+            Wind.turbulence = ov[3];
+            Wind.x = ov[1];
+            Wind.z = ov[2];
+            Wind.active = true;
+            return;
+        }
+        Wind.overridden = false;
+        Wind.turbulence = cfg.windTurbulence;
+
         if (!cfg.windEnabled) { Wind.active = false; Wind.x = 0f; Wind.z = 0f; return; }
 
         if (wet && !wasWet) stormDeg = rnd.nextDouble() * 360.0;
@@ -520,7 +533,7 @@ public class EavesDripClient implements ClientModInitializer {
     private void spawnDrop(double x, double y, double z) {
         float size = 0.028f * cfg.dropSize * (0.8f + rnd.nextFloat() * 0.5f);
         float speed = cfg.fallSpeed * (1f + (rnd.nextFloat() * 2f - 1f) * cfg.fallSpeedVar);
-        WaterParticle.pendingWind = cfg.windEnabled ? 0.7f + rnd.nextFloat() * 0.6f : 0f;
+        WaterParticle.pendingWind = (cfg.windEnabled || Wind.overridden) ? 0.7f + rnd.nextFloat() * 0.6f : 0f;
         level.addParticle(RoofDripsMod.DROP, x, y, z, size, Math.max(0.2f, speed), cfg.opacity);
     }
 

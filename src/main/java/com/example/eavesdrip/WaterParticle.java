@@ -65,7 +65,7 @@ public class WaterParticle extends SingleQuadParticle {
             float wx = Wind.x * windFactor, wz = Wind.z * windFactor;
             this.xd += (wx - this.xd) * 0.12;
             this.zd += (wz - this.zd) * 0.12;
-            float turb = RoofDripsConfig.get().windTurbulence;
+            float turb = Wind.turbulence;
             if (turb > 0f) {
                 float mag = (float) Math.sqrt(Wind.x * Wind.x + Wind.z * Wind.z);
                 this.xd += (this.random.nextFloat() - 0.5f) * 0.5f * turb * mag;

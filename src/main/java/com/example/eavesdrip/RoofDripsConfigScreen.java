@@ -13,6 +13,7 @@ import com.example.eavesdrip.RoofDripsConfig.Preset;
 import dev.isxander.yacl3.api.Binding;
 import dev.isxander.yacl3.api.ButtonOption;
 import dev.isxander.yacl3.api.ConfigCategory;
+import dev.isxander.yacl3.api.LabelOption;
 import dev.isxander.yacl3.api.Option;
 import dev.isxander.yacl3.api.OptionDescription;
 import dev.isxander.yacl3.api.OptionGroup;
@@ -23,6 +24,7 @@ import dev.isxander.yacl3.api.controller.FloatSliderControllerBuilder;
 import dev.isxander.yacl3.api.controller.IntegerSliderControllerBuilder;
 import dev.isxander.yacl3.api.controller.StringControllerBuilder;
 import dev.isxander.yacl3.api.controller.TickBoxControllerBuilder;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
@@ -479,6 +481,11 @@ public final class RoofDripsConfigScreen {
 
         // ===== Wind =====
         List<Option<?>> wind = new ArrayList<>();
+        if (FabricLoader.getInstance().isModLoaded("livingrain")) {
+            wind.add(LabelOption.createBuilder().line(Component.literal(
+                    "Living Rain is installed. If 'Override Roof Drips settings' is ticked in its menu, it controls the wind "
+                  + "and the wind settings below are ignored.")).build());
+        }
         wind.add(bool("Enable wind",
                 "Blows falling droplets sideways. Minecraft has no wind of its own, so this is a simulation "
               + "that only affects this mod's water. Off by default.",
