@@ -1,17 +1,22 @@
 {
   "schemaVersion": 1,
-  "id": "roofdrips",
+  "id": "livingrain",
   "version": "${version}",
-  "name": "Roof Drips",
-  "description": "Rain runs off roof edges, overhangs and cave mouths in streams and drips. Configure via Mod Menu.",
+  "name": "Living Rain",
+  "description": "Particle-based rain and snow that changes from storm to storm and during storms, with simulated wind. Configure via Mod Menu.",
   "authors": ["You"],
   "license": "MIT",
   "environment": "client",
   "entrypoints": {
-    "main": ["com.example.eavesdrip.RoofDripsMod"],
-    "client": ["com.example.eavesdrip.EavesDripClient"],
-    "modmenu": ["com.example.eavesdrip.RoofDripsModMenu"]
+    "main": ["com.example.livingrain.LivingRainMod"],
+    "client": ["com.example.livingrain.LivingRainClient"],
+    "modmenu": ["com.example.livingrain.LivingRainModMenu"],
+    "roofdrips:wind": ["com.example.livingrain.RoofDripsWindSupplier"]
   },
+  "mixins": [
+    "livingrain.mixins.json",
+    "livingrain.weather.mixins.json"
+  ],
   "depends": {
     "fabricloader": ">=0.19.5",
     "minecraft": "~26.3",
@@ -20,6 +25,7 @@
   },
   "suggests": {
     "modmenu": "*",
-    "yet_another_config_lib_v3": "*"
+    "yet_another_config_lib_v3": "*",
+    "roofdrips": "*"
   }
 }
