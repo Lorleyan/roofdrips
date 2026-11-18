@@ -9,5 +9,9 @@ public final class Wind {
     public static volatile float turbulence = 0.5f;
     /** True while another mod (Living Rain) is supplying the wind. */
     public static volatile boolean overridden;
+    /** True while another mod (Living Rain) is supplying the rain level that scales every drip. */
+    public static volatile boolean rainOverridden;
+    /** The rain level Roof Drips is using right now (the game's own, or the one supplied by another mod). */
+    public static volatile float rainLevel;
     private Wind() { }
 }

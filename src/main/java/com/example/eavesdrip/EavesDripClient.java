@@ -133,7 +133,20 @@ public class EavesDripClient implements ClientModInitializer {
         cfg = RoofDripsConfig.get();
         if (!cfg.enabled) { clearAll(); return; }
 
-        float rain = level.getRainLevel(1.0f);
+        // Another mod (Living Rain) may supply the wind and/or the rain level that scales every drip. See WindOverrides.
+        float[] ov = WindOverrides.poll();
+        float rain;
+        float thunderLevel;
+        if (ov != null && ov.length >= 7 && ov[4] > 0.5f) {
+            rain = ov[5];
+            thunderLevel = ov[6];
+            Wind.rainOverridden = true;
+        } else {
+            rain = level.getRainLevel(1.0f);
+            thunderLevel = level.getThunderLevel(1.0f);
+            Wind.rainOverridden = false;
+        }
+        Wind.rainLevel = rain;
         float fade = cfg.afterRainSeconds <= 0 ? 1f : 1f / (20f * cfg.afterRainSeconds);
         wetness = rain > wetness ? rain : Math.max(rain, wetness - fade);
         boolean wet = wetness > 0.02f;
@@ -146,7 +159,7 @@ public class EavesDripClient implements ClientModInitializer {
         leafBudget = cfg.effectiveTreeCap();
         soundTokens = Math.min(4f, soundTokens + cfg.maxSoundsPerSecond / 20f);
 
-        updateWind(wet, level.getThunderLevel(1.0f));
+        updateWind(wet, thunderLevel, ov);
 
         // Outdoor effects only while it is (or just was) raining.
         if (wet) {
@@ -181,10 +194,9 @@ public class EavesDripClient implements ClientModInitializer {
     }
 
     /** A made-up wind: a base direction that slowly drifts, plus smooth gusts. Vanilla Minecraft has no wind. */
-    private void updateWind(boolean wet, float thunder) {
-        // Another mod (Living Rain) may take over the wind. It returns {1, x, z, turbulence}, or null to stay out of it.
-        float[] ov = WindOverrides.poll();
-        if (ov != null) {
+    private void updateWind(boolean wet, float thunder, float[] ov) {
+        // Another mod (Living Rain) may take over the wind (flag in slot 0).
+        if (ov != null && ov[0] > 0.5f) {
             Wind.overridden = true;
             Wind.turbulence = ov[3];
             Wind.x = ov[1];

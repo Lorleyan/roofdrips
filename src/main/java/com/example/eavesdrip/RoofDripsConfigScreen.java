@@ -283,6 +283,12 @@ public final class RoofDripsConfigScreen {
                 0, 120, 5, " s", c -> c.afterRainSeconds, (c, v) -> c.afterRainSeconds = v, false);
 
         List<Option<?>> general = new ArrayList<>();
+        if (FabricLoader.getInstance().isModLoaded("livingrain")) {
+            general.add(LabelOption.createBuilder().line(Component.literal(
+                    "Living Rain is installed. If 'Scale Roof Drips with rain severity' is ticked in its menu, the density settings "
+                  + "in this mod are the amounts for a full downpour; lighter rain automatically gives fewer drips. "
+                  + "If it is unticked, Roof Drips behaves as it does on its own.")).build());
+        }
         general.add(enabled); general.add(presetOpt); general.add(radius); general.add(maxParticles);
         general.add(scanSpeed); general.add(opacity); general.add(afterRain);
         general.add(num("Droplet lifetime limit",
