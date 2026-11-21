@@ -56,6 +56,7 @@ public final class RoofDripsConfigScreen {
             Map.entry("Overall density", 4f),
             Map.entry("Amount", 2.5f),
             Map.entry("Overhang thickness", 19.5f),
+            Map.entry("Lower overhang levels", 4f),
             Map.entry("Sound limit", 15f),
             Map.entry("Tree density", 4f),
             Map.entry("Tree particle cap per tick", 100f),
@@ -339,6 +340,18 @@ public final class RoofDripsConfigScreen {
                 "Lets a block still drip when something like a chain, lantern, fence or wall piece hangs "
               + "underneath it. The water falls past the object and never appears on the object itself.",
                 c -> c.allowAboveDecor, (c, v) -> c.allowAboveDecor = v, false));
+        edge.add(bool("Drips on lower overhangs",
+                "Also makes drips on overhangs further down, underneath another roof: balconies, awnings and the tiers of a "
+              + "tower. They drip when slanted rain can reach them, and drip less the more sheltered they are. This needs wind: "
+              + "with no wind the rain falls straight down and anything under a roof stays dry.",
+                c -> c.lowerOverhangs, (c, v) -> c.lowerOverhangs = v, false));
+        edge.add(num("Lower overhang levels",
+                "How many levels below the top roof, in one spot, are checked. More levels cost more performance." + RED_NOTE,
+                1, 5, 1, "", c -> c.lowerStacks, (c, v) -> c.lowerStacks = v, false));
+        edge.add(flt("Rain slant for lower overhangs",
+                "How far sideways the rain is blown, which decides which lower overhangs it can reach. 100% = a slant that "
+              + "matches the wind. Only used when Living Rain is not supplying its own (it uses its visible rain slant).",
+                0f, 3f, 0.05f, true, c -> c.lowerRainSlant, (c, v) -> c.lowerRainSlant = v, false));
         edge.add(flt("Overall density",
                 "How much water falls from overhang edges. Affects both drips and streams." + RED_NOTE,
                 0.1f, 8f, 0.05f, false, c -> c.density, (c, v) -> c.density = v, true));

@@ -55,6 +55,11 @@ public class RoofDripsConfig {
     // ---- Not part of presets ----
     public int overhangDepth = INFINITE_DEPTH;
     public boolean allowAboveDecor = true;
+    /** Also drip from overhangs further down a column (balconies, awnings, tower tiers) that slanted rain can reach. */
+    public boolean lowerOverhangs = true;
+    public int lowerStacks = 3;
+    /** Multiplies the rain slant that Roof Drips derives from its own wind (Living Rain supplies its own). */
+    public float lowerRainSlant = 1.0f;
     public int maxDropSeconds = 12;
     public int afterRainSeconds = 20;
     public boolean soundsEnabled = true;
@@ -197,6 +202,7 @@ public class RoofDripsConfig {
         faceStreakSpeedVar = cl(faceStreakSpeedVar, 0f, 1f); opacity = cl(opacity, 0.2f, 1f);
         faceWander = cl(faceWander, 0f, 1f); faceWanderStrength = cl(faceWanderStrength, 0.2f, 2f);
         overhangDepth = cl(overhangDepth, 1, INFINITE_DEPTH);
+        lowerStacks = cl(lowerStacks, 1, 5); lowerRainSlant = cl(lowerRainSlant, 0f, 3f);
         maxDropSeconds = cl(maxDropSeconds, 2, 30);
         afterRainSeconds = cl(afterRainSeconds, 0, 120);
         dripVolume = cl(dripVolume, 0f, 1f); streamVolume = cl(streamVolume, 0f, 1f);

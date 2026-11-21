@@ -26,7 +26,9 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.PointedDripstoneBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import java.util.function.IntConsumer;
 
 /** Client side: finds overhangs / leaves while it rains and spawns water drips, streams and streaks. */
 public class EavesDripClient implements ClientModInitializer {
@@ -37,6 +39,7 @@ public class EavesDripClient implements ClientModInitializer {
     private static final int V_RANGE = 20;
     private static final int MAX_STREAKS = 500;
     private static final int MAX_STREAK_BLOCKS = 10;     // streaks never run further than this above the lip
+    private static final int LOWER_MAX_THICK = 8;        // lower overhangs thicker than this are treated as solid terrain
     private static final int INFINITE_SCAN = 512;        // how far down "Infinite" thickness will look
     private static final double CULL_COS = -0.35;
     private static final double NEAR_NO_CULL = 6.0;
@@ -52,13 +55,23 @@ public class EavesDripClient implements ClientModInitializer {
         final int seed;
         int mask;        // bits 0-3: open sides. Leaves also use bit 4 for the underside.
         int thick = 1;   // roofs: number of stacked blocks above the gap
-        float bottom;    // roofs: height of the block's underside inside its cell (0 = full block / bottom slab, 0.5 = top slab)
+        float bottom;    // roofs: LOWEST underside height inside the cell (0 = full block / bottom slab, 0.5 = top slab)
+        float[] prof;    // roofs: underside height at 16 points across each of the 4 faces (see Underside); NaN = nothing there
+        float exposure = 1f;   // roofs: share of the top that rain can reach (1 for the top roof, less for sheltered lower ones)
+        boolean lower;   // roofs: a lower overhang, under another roof, that only slanted rain reaches
         long seen;
         long checked;    // last tick this edge was re-verified against the real world
         final int[] burst = new int[4];
         final int[] gap = new int[4];
         final int[] snd = new int[4];
         Edge(boolean leaf, int seed, long now) { this.leaf = leaf; this.seed = seed; this.checked = now; }
+
+        /** Underside height at lateral position u (0..1) across face d, falling back to the lowest point. */
+        float undersideAt(int d, double u) {
+            if (prof == null) return bottom;
+            float v = prof[d * Underside.SAMPLES + Underside.index(u)];
+            return Float.isNaN(v) ? bottom : v;
+        }
     }
 
     /** A streak sliding down the face of a roof stack. It can wander sideways and change speed. */
@@ -72,7 +85,7 @@ public class EavesDripClient implements ClientModInitializer {
         boolean wander;
     }
 
-    private record Roof(int lowY, int thick, int mask, float bottom) { }
+    private record Roof(int lowY, int thick, int mask, float bottom, float[] prof, float exposure, boolean lower) { }
 
     /** A cave ceiling block (or dripstone tip) that can drip. src: 0 none, 1 water above, 2 rain seeping. */
     private static final class CaveSpot {
@@ -92,6 +105,14 @@ public class EavesDripClient implements ClientModInitializer {
     private final Map<Long, CaveSpot> caveSpots = new HashMap<>();
     private final BlockPos.MutableBlockPos scratch = new BlockPos.MutableBlockPos();
     private final BlockPos.MutableBlockPos scratch2 = new BlockPos.MutableBlockPos();
+    private final BlockPos.MutableBlockPos scratch3 = new BlockPos.MutableBlockPos();
+
+    /** How far the rain moves sideways per block it falls (smoothed). Decides which lower overhangs the rain can reach. */
+    private float slantX, slantZ;
+    /** Top block of the stack found by the last call to analyze(), for scanning below it. */
+    private int scanTopY = Integer.MIN_VALUE;
+    private int scanX, scanZ, scanRef;
+    private final Map<BlockState, float[]> profileCache = new HashMap<>();
 
     private float wetness = 0f;
     private long tickCount = 0;
@@ -147,6 +168,12 @@ public class EavesDripClient implements ClientModInitializer {
             Wind.rainOverridden = false;
         }
         Wind.rainLevel = rain;
+        // Rain slant, for lower overhangs: Living Rain supplies the real one; on its own we derive it from the wind.
+        float tsx, tsz;
+        if (ov != null && ov.length >= 9 && ov[4] > 0.5f) { tsx = ov[7]; tsz = ov[8]; }
+        else { tsx = Wind.x * 4f * cfg.lowerRainSlant; tsz = Wind.z * 4f * cfg.lowerRainSlant; }
+        slantX += (tsx - slantX) * 0.04f;
+        slantZ += (tsz - slantZ) * 0.04f;
         float fade = cfg.afterRainSeconds <= 0 ? 1f : 1f / (20f * cfg.afterRainSeconds);
         wetness = rain > wetness ? rain : Math.max(rain, wetness - fade);
         boolean wet = wetness > 0.02f;
@@ -287,17 +314,13 @@ public class EavesDripClient implements ClientModInitializer {
      * Looks at one column and decides whether it is a drip rim right now.
      *
      * 1. Take the rain-exposed top block (skipping a few decor blocks such as fence posts on top).
-     * 2. Cheap test: water on its top must be able to run off at least one side. That side needs open air beside the
-     *    top surface, an open edge, and open sky above the neighbouring column (so interior steps, diagonal roof
-     *    lines and thin crusts over caves are rejected right here).
-     * 3. Walk down through the stack. A side stays alive only while the whole face is open air. The walk ends at the
-     *    first gap (open air, or decor if enabled). The block just above the gap is the rim.
-     * 4. The rim needs a full flat top or bottom (so top slabs work) and the side below it must be open.
+     * 2. Hand that stack to analyzeStack(), which does the rest (see there).
+     * The height of the top block is remembered in scanTopY so lower stacks in the same column can be looked at too.
      */
     private Roof analyze(int x, int z, int refY) {
         boolean decorOk = cfg.allowAboveDecor;
-        int maxT = cfg.overhangDepth >= RoofDripsConfig.INFINITE_DEPTH ? INFINITE_SCAN : cfg.overhangDepth;
         BlockPos.MutableBlockPos p = scratch;
+        scanTopY = Integer.MIN_VALUE;
         p.set(x, 0, z);
         if (!level.hasChunkAt(p)) return null;
 
@@ -317,13 +340,42 @@ public class EavesDripClient implements ClientModInitializer {
             break;
         }
         if (s.getCollisionShape(level, p).isEmpty()) return null;
-        int topY = y;
+        scanTopY = y;
+        return analyzeStack(x, z, y, false, refY);
+    }
+
+    /**
+     * Analyses the stack of solid blocks whose top block is at topY.
+     *
+     * lower = false: the top stack of the column; rain falls straight onto it.
+     * lower = true:  a stack further down, under another roof (a balcony, an awning, a tower tier). It only counts if
+     *                slanted rain can reach its top face, and it drips less the more sheltered it is.
+     *
+     * 1. Cheap test: water on the top must be able to run off at least one side. That side needs open air beside the
+     *    top surface and an open edge (for the top stack also open sky above the neighbouring column, so interior steps,
+     *    diagonal roof lines and thin crusts over caves are rejected right here).
+     * 2. Walk down through the stack. A side stays alive only while the whole face is open air. The walk ends at the
+     *    first gap (open air, or decor if enabled). The block just above the gap is the rim.
+     * 3. The rim needs a full flat top or bottom (so top slabs and stairs work) and the side below it must be open.
+     * 4. Work out where the rim's underside really is along each face (upside-down stairs are thin on one side).
+     */
+    private Roof analyzeStack(int x, int z, int topY, boolean lower, int refY) {
+        boolean decorOk = cfg.allowAboveDecor;
+        int maxT = cfg.overhangDepth >= RoofDripsConfig.INFINITE_DEPTH ? INFINITE_SCAN : cfg.overhangDepth;
+        if (lower) maxT = Math.min(maxT, LOWER_MAX_THICK);
+        BlockPos.MutableBlockPos p = scratch;
+        p.set(x, topY, z);
+        BlockState s = level.getBlockState(p);
+        if (lower) {
+            if (!s.getFluidState().isEmpty() || s.is(BlockTags.LEAVES) || s.getCollisionShape(level, p).isEmpty()) return null;
+            if (!thr(x, topY + 1, z, decorOk)) return null;      // covered right above: no rain gets in
+        }
 
         int alive = 0;
         for (int d = 0; d < 4; d++) {
             int nx = x + HORIZ[d].getStepX(), nz = z + HORIZ[d].getStepZ();
             if (thr(nx, topY + 1, nz, decorOk) && thr(nx, topY, nz, decorOk)
-                    && level.getHeight(Heightmap.Types.MOTION_BLOCKING, nx, nz) <= topY + 2) {
+                    && (lower || level.getHeight(Heightmap.Types.MOTION_BLOCKING, nx, nz) <= topY + 2)) {
                 alive |= 1 << d;
             }
         }
@@ -361,8 +413,95 @@ public class EavesDripClient implements ClientModInitializer {
         }
         if (alive == 0) return null;
 
-        double bottom = low.getCollisionShape(level, p).min(Direction.Axis.Y);
-        return new Roof(lowY, t, alive, (float) Math.max(0.0, Math.min(0.95, bottom)));
+        // Where is the underside along each open face? A side that has no solid part reaching it cannot drip.
+        float[] prof = profileOf(low, p);
+        float bottom = 1f;
+        for (int d = 0; d < 4; d++) {
+            if ((alive & (1 << d)) == 0) continue;
+            boolean any = false;
+            for (int i = 0; i < Underside.SAMPLES; i++) {
+                float v = prof[d * Underside.SAMPLES + i];
+                if (!Float.isNaN(v)) { any = true; if (v < bottom) bottom = v; }
+            }
+            if (!any) alive &= ~(1 << d);
+        }
+        if (alive == 0) return null;
+
+        float exposure = 1f;
+        if (lower) {
+            exposure = RainExposure.exposure(exposureGrid, x, topY, z, slantX, slantZ, 16.0);
+            if (exposure <= 0.01f) return null;
+        }
+        return new Roof(lowY, t, alive, bottom, prof, exposure, lower);
+    }
+
+    /** Underside height across all four faces of a block state, from its collision shape. Cached per state. */
+    private float[] profileOf(BlockState state, BlockPos pos) {
+        float[] cached = profileCache.get(state);
+        if (cached != null) return cached;
+        List<double[]> boxes = new ArrayList<>();
+        for (AABB b : state.getCollisionShape(level, pos).toAabbs()) {
+            boxes.add(new double[] { b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ });
+        }
+        float[] out = new float[4 * Underside.SAMPLES];
+        for (int d = 0; d < 4; d++) {
+            float[] face = Underside.sideProfile(boxes, HORIZ[d].getStepX(), HORIZ[d].getStepZ());
+            System.arraycopy(face, 0, out, d * Underside.SAMPLES, Underside.SAMPLES);
+        }
+        if (profileCache.size() > 1024) profileCache.clear();
+        profileCache.put(state, out);
+        return out;
+    }
+
+    /** What the rain-exposure test needs to know about the world. */
+    private final RainExposure.Grid exposureGrid = new RainExposure.Grid() {
+        @Override public boolean blocked(int x, int y, int z) { return !thr(x, y, z, cfg.allowAboveDecor); }
+        @Override public int skyY(int x, int z) {
+            scratch3.set(x, 0, z);
+            return level.hasChunkAt(scratch3) ? level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z) : Integer.MAX_VALUE;
+        }
+    };
+
+    private final StackScan.Cells scanCells = new StackScan.Cells() {
+        @Override public boolean passable(int x, int y, int z) { return thr(x, y, z, cfg.allowAboveDecor); }
+        @Override public boolean fluid(int x, int y, int z) {
+            scratch3.set(x, y, z);
+            return !level.getFluidState(scratch3).isEmpty();
+        }
+    };
+
+    /** Finds the stacks below the first one in this column (balconies, awnings, tower tiers) and analyses each. */
+    private final IntConsumer lowerSink = topY -> {
+        Roof r = analyzeStack(scanX, scanZ, topY, true, scanRef);
+        if (r != null) addEdge(scanX, scanZ, r);
+    };
+
+    private void scanLower(int x, int z, int refY, int firstTop) {
+        scanX = x;
+        scanZ = z;
+        scanRef = refY;
+        StackScan.lowerTops(scanCells, x, z, firstTop, refY - V_RANGE - 2, cfg.lowerStacks, LOWER_MAX_THICK, lowerSink);
+    }
+
+    private boolean hasSlant() {
+        return Math.abs(slantX) >= 0.03f || Math.abs(slantZ) >= 0.03f;
+    }
+
+    private static void applyRoof(Edge e, Roof r) {
+        e.mask = r.mask();
+        e.thick = r.thick();
+        e.bottom = r.bottom();
+        e.prof = r.prof();
+        e.exposure = r.exposure();
+        e.lower = r.lower();
+    }
+
+    private void addEdge(int x, int z, Roof r) {
+        long key = BlockPos.asLong(x, r.lowY(), z);
+        Edge e = roofEdges.get(key);
+        if (e == null) { e = new Edge(false, seedOf(key), tickCount); roofEdges.put(key, e); }
+        applyRoof(e, r);
+        e.seen = tickCount;
     }
 
     // ================= Discovery =================
@@ -378,15 +517,14 @@ public class EavesDripClient implements ClientModInitializer {
             if (dx * dx + dz * dz > R * R) continue;
 
             Roof r = analyze(x, z, py);
-            if (r == null) continue;
+            int firstTop = scanTopY;
+            if (r != null) addEdge(x, z, r);
 
-            long key = BlockPos.asLong(x, r.lowY(), z);
-            Edge e = roofEdges.get(key);
-            if (e == null) { e = new Edge(false, seedOf(key), tickCount); roofEdges.put(key, e); }
-            e.mask = r.mask();
-            e.thick = r.thick();
-            e.bottom = r.bottom();
-            e.seen = tickCount;
+            // Further stacks lower down in the same column (under the roof we just looked at). Only worth looking at
+            // when there is wind: with straight-down rain, anything under a roof stays dry.
+            if (cfg.lowerOverhangs && firstTop != Integer.MIN_VALUE && hasSlant() && roofEdges.size() < MAX_EDGES) {
+                scanLower(x, z, py, firstTop);
+            }
         }
     }
 
@@ -461,20 +599,22 @@ public class EavesDripClient implements ClientModInitializer {
             if (isBehind(tx, ty, tz, distSqr)) continue;
 
             // Re-check against the real world every few ticks, so filling a gap stops the effect at once.
+            // Lower overhangs are re-checked less often: they cost more to check (the rain path is traced).
             long sinceCheck = tickCount - e.checked;
-            if (sinceCheck >= 8 || (sinceCheck >= 3 && Math.floorMod((long) e.seed + tickCount, 3L) == 0)) {
-                Roof r = analyze(rim.getX(), rim.getZ(), rim.getY());
+            if (sinceCheck >= (e.lower ? 24 : 8)
+                    || (!e.lower && sinceCheck >= 3 && Math.floorMod((long) e.seed + tickCount, 3L) == 0)) {
+                Roof r = e.lower
+                        ? analyzeStack(rim.getX(), rim.getZ(), rim.getY() + e.thick - 1, true, rim.getY())
+                        : analyze(rim.getX(), rim.getZ(), rim.getY());
                 if (r == null || r.lowY() != rim.getY()) { it.remove(); continue; }
-                e.mask = r.mask();
-                e.thick = r.thick();
-                e.bottom = r.bottom();
+                applyRoof(e, r);
                 e.checked = tickCount;
                 e.seen = tickCount;
             }
 
             double dist = Math.sqrt(distSqr);
             float falloff = (float) (1.0 - 0.6 * dist / cfg.radius);
-            float dens = cfg.density * wetness * falloff;
+            float dens = cfg.density * wetness * falloff * e.exposure;
 
             for (int d = 0; d < 4; d++) {
                 if ((e.mask & (1 << d)) == 0) continue;
@@ -528,7 +668,7 @@ public class EavesDripClient implements ClientModInitializer {
         }
 
         if (cfg.faceStreakAmount > 0f && dist < cfg.radius * 0.6 && streaks.size() < MAX_STREAKS
-                && rnd.nextFloat() < 0.006f * cfg.faceStreakAmount * wetness * rateMul
+                && rnd.nextFloat() < 0.006f * cfg.faceStreakAmount * wetness * rateMul * e.exposure
                 && faceStreakAllowed(rim, e.thick, d)) {
             spawnStreak(rim, d, e.thick);
         }
@@ -539,7 +679,9 @@ public class EavesDripClient implements ClientModInitializer {
         double along = (rnd.nextDouble() - 0.5) * 0.8;
         double px = rim.getX() + 0.5 + dir.getStepX() * 0.53 + (dir.getAxis() == Direction.Axis.X ? 0 : along);
         double pz = rim.getZ() + 0.5 + dir.getStepZ() * 0.53 + (dir.getAxis() == Direction.Axis.Z ? 0 : along);
-        spawnDrop(px, rim.getY() + e.bottom - 0.02, pz);
+        // Start at the underside as it really is at this spot on the face: an upside-down stair is thin on one side.
+        double under = e.undersideAt(d, 0.5 + along);
+        spawnDrop(px, rim.getY() + under - 0.02, pz);
     }
 
     private void spawnDrop(double x, double y, double z) {
