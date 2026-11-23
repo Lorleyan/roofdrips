@@ -7,11 +7,11 @@ public final class Wind {
     public static volatile float z;
     /** Turbulence in use right now (RoofDrips' own setting, or the one supplied by an overriding mod). */
     public static volatile float turbulence = 0.5f;
-    /** True while another mod (Living Rain) is supplying the wind. */
+    /** True while another mod (Immersive Rain) is supplying the wind. */
     public static volatile boolean overridden;
-    /** True while another mod (Living Rain) is supplying the rain level that scales every drip. */
+    /** True while another mod (Immersive Rain) is supplying the rain level that scales every drip. */
     public static volatile boolean rainOverridden;
-    /** The rain level Roof Drips is using right now (the game's own, or the one supplied by another mod). */
+    /** The rain level Immersive Drips is using right now (the game's own, or the one supplied by another mod). */
     public static volatile float rainLevel;
     private Wind() { }
 }

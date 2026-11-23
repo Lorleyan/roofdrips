@@ -2,15 +2,23 @@
   "schemaVersion": 1,
   "id": "roofdrips",
   "version": "${version}",
-  "name": "Roof Drips",
-  "description": "Rain runs off roof edges, overhangs and cave mouths in streams and drips. Configure via Mod Menu.",
-  "authors": ["You"],
+  "name": "Brewtality's Immersive Drips",
+  "description": "Rain runs off roof edges, overhangs and cave mouths in streams and drips. Works on its own; with Brewtality's Immersive Rain installed they share one wind and the drips follow how heavy the rain is. Configure via Mod Menu.",
+  "authors": [
+    "Brewtality"
+  ],
   "license": "MIT",
   "environment": "client",
   "entrypoints": {
-    "main": ["com.example.eavesdrip.RoofDripsMod"],
-    "client": ["com.example.eavesdrip.EavesDripClient"],
-    "modmenu": ["com.example.eavesdrip.RoofDripsModMenu"]
+    "main": [
+      "com.example.eavesdrip.RoofDripsMod"
+    ],
+    "client": [
+      "com.example.eavesdrip.EavesDripClient"
+    ],
+    "modmenu": [
+      "com.example.eavesdrip.RoofDripsModMenu"
+    ]
   },
   "depends": {
     "fabricloader": ">=0.19.5",
@@ -20,6 +28,7 @@
   },
   "suggests": {
     "modmenu": "*",
-    "yet_another_config_lib_v3": "*"
+    "yet_another_config_lib_v3": "*",
+    "livingrain": ">=1.1.0"
   }
 }

@@ -154,7 +154,7 @@ public class EavesDripClient implements ClientModInitializer {
         cfg = RoofDripsConfig.get();
         if (!cfg.enabled) { clearAll(); return; }
 
-        // Another mod (Living Rain) may supply the wind and/or the rain level that scales every drip. See WindOverrides.
+        // Another mod (Immersive Rain) may supply the wind and/or the rain level that scales every drip. See WindOverrides.
         float[] ov = WindOverrides.poll();
         float rain;
         float thunderLevel;
@@ -168,7 +168,7 @@ public class EavesDripClient implements ClientModInitializer {
             Wind.rainOverridden = false;
         }
         Wind.rainLevel = rain;
-        // Rain slant, for lower overhangs: Living Rain supplies the real one; on its own we derive it from the wind.
+        // Rain slant, for lower overhangs: Immersive Rain supplies the real one; on its own we derive it from the wind.
         float tsx, tsz;
         if (ov != null && ov.length >= 9 && ov[4] > 0.5f) { tsx = ov[7]; tsz = ov[8]; }
         else { tsx = Wind.x * 4f * cfg.lowerRainSlant; tsz = Wind.z * 4f * cfg.lowerRainSlant; }
@@ -222,7 +222,7 @@ public class EavesDripClient implements ClientModInitializer {
 
     /** A made-up wind: a base direction that slowly drifts, plus smooth gusts. Vanilla Minecraft has no wind. */
     private void updateWind(boolean wet, float thunder, float[] ov) {
-        // Another mod (Living Rain) may take over the wind (flag in slot 0).
+        // Another mod (Immersive Rain) may take over the wind (flag in slot 0).
         if (ov != null && ov[0] > 0.5f) {
             Wind.overridden = true;
             Wind.turbulence = ov[3];

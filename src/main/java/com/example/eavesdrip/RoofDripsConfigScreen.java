@@ -286,9 +286,9 @@ public final class RoofDripsConfigScreen {
         List<Option<?>> general = new ArrayList<>();
         if (FabricLoader.getInstance().isModLoaded("livingrain")) {
             general.add(LabelOption.createBuilder().line(Component.literal(
-                    "Living Rain is installed. If 'Scale Roof Drips with rain severity' is ticked in its menu, the density settings "
+                    "Immersive Rain is installed. If 'Scale Immersive Drips with rain severity' is ticked in its menu, the density settings "
                   + "in this mod are the amounts for a full downpour; lighter rain automatically gives fewer drips. "
-                  + "If it is unticked, Roof Drips behaves as it does on its own.")).build());
+                  + "If it is unticked, Immersive Drips behaves as it does on its own.")).build());
         }
         general.add(enabled); general.add(presetOpt); general.add(radius); general.add(maxParticles);
         general.add(scanSpeed); general.add(opacity); general.add(afterRain);
@@ -350,7 +350,7 @@ public final class RoofDripsConfigScreen {
                 1, 5, 1, "", c -> c.lowerStacks, (c, v) -> c.lowerStacks = v, false));
         edge.add(flt("Rain slant for lower overhangs",
                 "How far sideways the rain is blown, which decides which lower overhangs it can reach. 100% = a slant that "
-              + "matches the wind. Only used when Living Rain is not supplying its own (it uses its visible rain slant).",
+              + "matches the wind. Only used when Immersive Rain is not supplying its own (it uses its visible rain slant).",
                 0f, 3f, 0.05f, true, c -> c.lowerRainSlant, (c, v) -> c.lowerRainSlant = v, false));
         edge.add(flt("Overall density",
                 "How much water falls from overhang edges. Affects both drips and streams." + RED_NOTE,
@@ -502,7 +502,7 @@ public final class RoofDripsConfigScreen {
         List<Option<?>> wind = new ArrayList<>();
         if (FabricLoader.getInstance().isModLoaded("livingrain")) {
             wind.add(LabelOption.createBuilder().line(Component.literal(
-                    "Living Rain is installed. If 'Override Roof Drips settings' is ticked in its menu, it controls the wind "
+                    "Immersive Rain is installed. If 'Override Immersive Drips settings' is ticked in its menu, it controls the wind "
                   + "and the wind settings below are ignored.")).build());
         }
         wind.add(bool("Enable wind",
@@ -538,7 +538,7 @@ public final class RoofDripsConfigScreen {
                 1, 10, 1, " s", c -> c.gustDuration, (c, v) -> c.gustDuration = v, false));
 
         return YetAnotherConfigLib.createBuilder()
-                .title(Component.literal("Roof Drips"))
+                .title(Component.literal("Brewtality's Immersive Drips"))
                 .category(ConfigCategory.createBuilder().name(Component.literal("General")).options(general)
                         .group(OptionGroup.createBuilder().name(Component.literal("Your presets")).options(myPresets).build())
                         .build())

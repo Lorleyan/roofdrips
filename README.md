@@ -1,46 +1,29 @@
-# Living Rain 0.3.0  (Minecraft 26.3, Fabric)
+# Brewtality's Immersive Drips 1.2.0  (Minecraft 26.3, Fabric)
 
-Replaces vanilla rain and snow with particle rain that changes from storm to storm and during storms
-(drizzle, light, heavy, torrential), with simulated wind. Client-side only: install it on your own game, no server needed.
+Rain runs off roof edges, overhangs, tree leaves and cave mouths in streams and drips. Client-side only.
+
+Part of a pair with **Brewtality's Immersive Rain** (particle rain and snow with wind). Each works on its own; installed together they
+share one wind, and the drips follow how heavy the rain is. **Both mods are version 1.2.0: use matching versions.**
+On its own, this mod uses only its own settings, exactly as before.
+
+## 1.2.0
+No code changes. The version is raised so it matches Brewtality's Immersive Rain 1.2.0 (heavy-rain effects).
+
+## 1.1.0: renamed, and versions aligned
+* Renamed from "Roof Drips" to **Brewtality's Immersive Drips**. Both mods start at 1.1.0 from here on.
+* **Your settings are kept.** Only the display name changed; the internal ID (`roofdrips`) and settings file are the same.
+* **Remove the old jar before installing the new one:** delete `roofdrips-*.jar` from your `mods` folder. The new file is
+  `brewtality-immersive-drips-1.2.0.jar`. The internal ID is unchanged, so an old jar left in place would give Fabric two copies of the same mod.
+
+## Included in this version (since the last release you had)
+* Upside-down stairs and other partial blocks: drips now start at the block's real underside along each face (no gap).
+* Drips on lower overhangs (balconies, awnings, tower tiers under another roof) when wind-slanted rain can reach them.
+  Settings in the Overhang tab: "Drips on lower overhangs", "Lower overhang levels", "Rain slant for lower overhangs".
+* With Brewtality's Immersive Rain installed: shared wind, and drip amounts that follow the rain's severity (set in Immersive Rain's menu).
+
+## Console commands
+None yet. The name `/BDrip` is reserved for them (Brewtality's Immersive Rain uses `/BRain`).
 
 ## Build it
-1. Upload everything in this folder to a GitHub repository. Make sure the hidden `.github` folder came along
-   (it holds `.github/workflows/build.yml`). If GitHub added its own Gradle workflow file, delete that one.
-2. Wait for the "Build mod" action to get a green tick, open it and download **livingrain-mod**.
-3. Put the `.jar` in your `mods` folder next to Fabric API, YACL and Mod Menu (and Roof Drips 1.0.9 for the wind link).
-
-If the build fails, copy the red error text from the build log and send it to me.
-
-## What's new in 0.3.0
-* **Rain no longer disappears.** Minecraft silently throws away particles when its internal queue is full; the old particle counter
-  never noticed and eventually thought the limit was reached, so it stopped making rain. Particles are now counted by whether they are
-  really still alive, and the mod detects Minecraft's real limit and stays under it.
-* **Vanilla rain is hidden by default** (using the 26.3 weather code, with a safety net if a name is wrong).
-  New option "Show vanilla rain too" (Rain Look tab) to see both.
-* **Chat commands** (see below).
-
-## Commands (type in chat, they only change your own game)
-* `/livingrain start` / `/livingrain stop`  turn Living Rain on / off (stop = vanilla weather fully back)
-* `/livingrain preset gentle|balanced|dramatic|chaotic`
-* `/livingrain weather real|clear|drizzle|light|heavy|torrential|thunder`  test weather on your screen only
-* `/livingrain vanilla on|off`  show/hide vanilla rain
-* `/livingrain status`  prints what the mod is doing: particles alive, limits, which hooks work. **If rain ever stops, run this
-  and send me the output.**
-
-## Earlier changes (0.2.0)
-* Rain streaks now follow the wind correctly from ANY view angle (looking up no longer makes them fall sideways).
-* Much denser rain by default; Density goes up to 6.0 and the Particle limit up to 14,000.
-* Motion blur setting (soft, longer streaks; faster drops in gusts stretch further), soft fade-in/out at the edges.
-* Immersive weather messages ("The rain eases up."), on/off, above the hotbar or in chat.
-* Debug tab in the settings: one-click weather tests (clear, drizzle, light, heavy, torrential, thunderstorm).
-
-Note: because defaults changed, your old `config/livingrain.json` is replaced with the new defaults on first start.
-
-## Using the test weather
-Mod Menu > Living Rain > Configure > Debug tab. Click e.g. "Test: Heavy rain". The screen closes and your game shows that
-weather on your screen only (no effect on the server, no lightning). Open the menu again to change rain-look or wind settings
-and compare. Click "Stop testing" to return to real weather. Test mode switches itself off whenever the game restarts.
-
-## Checking it works
-Open `logs/latest.log` and search `[livingrain]`. Expected: "Rain-level hook is active", and "Weather messages are shown using ...".
-Keep Minecraft's **Particles** option on **All**. If your shader pack draws its own rain, turn that off in the shader's settings.
+Upload this folder to a GitHub repository (include the hidden `.github` folder), wait for the "Build mod" action,
+and download **brewtality-immersive-drips**. Requires Fabric API, YACL and Mod Menu.

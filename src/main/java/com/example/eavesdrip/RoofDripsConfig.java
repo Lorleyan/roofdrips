@@ -58,7 +58,7 @@ public class RoofDripsConfig {
     /** Also drip from overhangs further down a column (balconies, awnings, tower tiers) that slanted rain can reach. */
     public boolean lowerOverhangs = true;
     public int lowerStacks = 3;
-    /** Multiplies the rain slant that Roof Drips derives from its own wind (Living Rain supplies its own). */
+    /** Multiplies the rain slant that Immersive Drips derives from its own wind (Immersive Rain supplies its own). */
     public float lowerRainSlant = 1.0f;
     public int maxDropSeconds = 12;
     public int afterRainSeconds = 20;
