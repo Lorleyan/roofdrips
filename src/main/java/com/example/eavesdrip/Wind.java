@@ -1,0 +1,17 @@
+package com.example.eavesdrip;
+
+/** The simulated wind, updated once per tick by the client and read by falling droplets. Blocks per tick. */
+public final class Wind {
+    public static volatile boolean active;
+    public static volatile float x;
+    public static volatile float z;
+    /** Turbulence in use right now (RoofDrips' own setting, or the one supplied by an overriding mod). */
+    public static volatile float turbulence = 0.5f;
+    /** True while another mod (Immersive Rain) is supplying the wind. */
+    public static volatile boolean overridden;
+    /** True while another mod (Immersive Rain) is supplying the rain level that scales every drip. */
+    public static volatile boolean rainOverridden;
+    /** The rain level Immersive Drips is using right now (the game's own, or the one supplied by another mod). */
+    public static volatile float rainLevel;
+    private Wind() { }
+}
