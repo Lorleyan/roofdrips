@@ -14,7 +14,7 @@ import net.fabricmc.loader.api.FabricLoader;
 /** All settings. Saved to config/livingrain.json. Plain Java: no config-library classes in here. */
 public class LivingRainConfig {
 
-    private static final int CONFIG_VERSION = 2;
+    private static final int CONFIG_VERSION = 5;
 
     /** null in files written by older versions of the mod. */
     public Integer configVersion;
@@ -74,19 +74,48 @@ public class LivingRainConfig {
     public int gustDuration = 3;
     public float rainWindInfluence = 1.5f;
 
-    // ---- Roof Drips link ----
+    // ---- Immersive Drips link ----
     public boolean overrideRoofDrips = true;
+    /** Immersive Drips' drip amounts follow the rain's severity. Off = Immersive Drips behaves exactly as it does without this mod. */
+    public boolean dripScaling = true;
+    /** Drip amount as a share of Immersive Drips' own density setting: lightest rain, torrential rain, and thunderstorm. */
+    public float dripDrizzle = 0.20f;
+    public float dripTorrential = 1.0f;
+    public float dripThunder = 1.3f;
 
     // ---- Rain look ----
     public int radius = 22;
     public int spawnHeight = 14;
-    public float density = 2.2f;
-    public int maxParticles = 9000;
+    public float density = 6.0f;
+    public int maxParticles = 20000;
     /** 0 = crisp short streaks, 1 = long soft streaks. */
     public float motionBlur = 0.8f;
-    public float opacity = 0.8f;
+    public float opacity = 0.45f;
+    /** Brightness of the rain colour, so it can be matched to a shader pack's lighting. */
+    public float rainBrightness = 0.85f;
+    /** Size of snowflakes only (rain size now comes from the two settings below). */
     public float dropSize = 1.0f;
-    public float fallSpeed = 1.0f;
+    /** Rain drop size: lightest rain (drizzle) and thunderstorm. Everything in between is blended automatically. */
+    public float dropSizeDrizzle = 1.5f;
+    public float dropSizeThunder = 0.4f;
+    /** How many ground splashes there are (1.0 = default; they also increase automatically with rain intensity). */
+    public float splashAmount = 1.0f;
+    /** Heavy-rain effects. They fade in between light and heavy rain; drizzle and light rain are plain particles. */
+    public boolean curtains = true;
+    public float curtainStrength = 1.0f;
+    public boolean glints = true;
+    public float glintAmount = 0.6f;
+    public float backlight = 1.0f;
+    /** Rain sheets: big pictures of many thin streaks, for the "tons of thin rain" look in heavy rain. */
+    public boolean sheets = true;
+    public float sheetAmount = 1.0f;
+    public float sheetSize = 1.0f;
+    /** Rain brightens for an instant when lightning strikes. */
+    public boolean lightningFlash = true;
+    public float flashStrength = 1.0f;
+    /** Experimental: draw rain so it stays visible behind glass when a shader pack is on. */
+    public boolean seeThroughWindows = false;
+    public float fallSpeed = 2.0f;
     public float fallSpeedVar = 0.20f;
     public boolean splashes = true;
     public boolean flipSlant = false;
@@ -103,6 +132,8 @@ public class LivingRainConfig {
     public transient int testTier = 2;
     /** 0 = automatic, 1..4 = calm, breezy, windy, gale. */
     public transient int testWind = 0;
+    /** Debug view: tint rain by how thick the rain curtain is at that spot (red = thick, blue = thin). Not saved. */
+    public transient boolean curtainDebug = false;
 
     // ---------------- Helpers ----------------
     public float[] rainWeights() {
@@ -178,11 +209,14 @@ public class LivingRainConfig {
         gustFrequency = cl(gustFrequency, 0f, 1f); gustStrength = cl(gustStrength, 0f, 3f);
         gustDuration = cl(gustDuration, 1, 10);
         rainWindInfluence = cl(rainWindInfluence, 0f, 5f);
+        dripDrizzle = cl(dripDrizzle, 0f, 2f); dripTorrential = cl(dripTorrential, 0f, 2f); dripThunder = cl(dripThunder, 0f, 2f);
         radius = cl(radius, 8, 30); spawnHeight = cl(spawnHeight, 6, 30);
-        density = cl(density, 0.1f, 6f); maxParticles = cl(maxParticles, 200, 14000);
+        density = cl(density, 0.1f, 20f); maxParticles = cl(maxParticles, 200, 60000);
         motionBlur = cl(motionBlur, 0f, 2f); messageStyle = cl(messageStyle, 0, 1);
-        opacity = cl(opacity, 0.1f, 1f); dropSize = cl(dropSize, 0.3f, 3f);
-        fallSpeed = cl(fallSpeed, 0.3f, 2f); fallSpeedVar = cl(fallSpeedVar, 0f, 0.6f);
+        opacity = cl(opacity, 0.1f, 1f); dropSize = cl(dropSize, 0.3f, 2f);
+        rainBrightness = cl(rainBrightness, 0.3f, 1f); curtainStrength = cl(curtainStrength, 0f, 2f); sheetAmount = cl(sheetAmount, 0f, 2f); sheetSize = cl(sheetSize, 0.6f, 1.6f); flashStrength = cl(flashStrength, 0f, 2f); glintAmount = cl(glintAmount, 0f, 1f); backlight = cl(backlight, 0f, 2f); dropSizeDrizzle = cl(dropSizeDrizzle, 0.3f, 2f); dropSizeThunder = cl(dropSizeThunder, 0.3f, 2f);
+        splashAmount = cl(splashAmount, 0f, 4f);
+        fallSpeed = cl(fallSpeed, 0.3f, 6f); fallSpeedVar = cl(fallSpeedVar, 0f, 0.6f);
         rainVolume = cl(rainVolume, 0f, 1.5f);
     }
 
@@ -202,7 +236,26 @@ public class LivingRainConfig {
                 try (Reader r = Files.newBufferedReader(FILE)) {
                     LivingRainConfig c = GSON.fromJson(r, LivingRainConfig.class);
                     if (c != null) {
-                        if (c.configVersion == null || c.configVersion < CONFIG_VERSION) c = new LivingRainConfig();
+                        if (c.configVersion == null || c.configVersion < 2) {
+                            c = new LivingRainConfig();
+                        } else {
+                            if (c.configVersion < 3) {
+                                // 0.4.0: new default look (faster, denser, fainter rain). Keep every other setting.
+                                c.fallSpeed = 2.0f;
+                                c.density = 6.0f;
+                                c.maxParticles = 20000;
+                                c.opacity = 0.5f;
+                            }
+                            if (c.configVersion < 4) {
+                                // 0.5.0: rain size now comes from the drizzle/thunderstorm settings; dropSize is for snow only.
+                                c.dropSize = 1.0f;
+                            }
+                            if (c.configVersion < 5) {
+                                // 1.1.0: slightly lower default opacity and thunderstorm drop size. Only touched if still on the old default.
+                                if (c.opacity == 0.5f) c.opacity = 0.45f;
+                                if (c.dropSizeThunder == 0.5f) c.dropSizeThunder = 0.4f;
+                            }
+                        }
                         c.configVersion = CONFIG_VERSION;
                         c.sanitize();
                         c.save();

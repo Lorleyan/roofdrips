@@ -5,14 +5,14 @@ import java.lang.reflect.Field;
 import net.fabricmc.loader.api.FabricLoader;
 
 /**
- * Optional link to the Roof Drips mod. Uses reflection, so this mod needs nothing from Roof Drips at build time
- * and works the same whether or not Roof Drips is installed.
+ * Optional link to the Immersive Drips mod. Uses reflection, so this mod needs nothing from Immersive Drips at build time
+ * and works the same whether or not Immersive Drips is installed.
  */
 public final class RoofDripsLink {
 
     private static Boolean present;
     private static boolean inited;
-    private static boolean overrideSupported;
+    private static boolean overrideSupported, rainScalingSupported;
     private static Field fActive, fX, fZ;
     private static final float[] OUT = new float[2];
 
@@ -23,13 +23,19 @@ public final class RoofDripsLink {
         return present;
     }
 
-    /** True if the installed Roof Drips is a version that accepts a wind override (1.0.9 or newer). */
+    /** True if the installed Immersive Drips is a version that accepts a wind override (1.1.0 or newer). */
     public static boolean supportsOverride() {
         init();
         return overrideSupported;
     }
 
-    /** Roof Drips' current wind as {x, z} in blocks per tick, or null if it has none right now. */
+    /** True if the installed Immersive Drips can take a rain level from this mod (1.1.0 or newer). */
+    public static boolean supportsRainScaling() {
+        init();
+        return rainScalingSupported;
+    }
+
+    /** Immersive Drips' current wind as {x, z} in blocks per tick, or null if it has none right now. */
     public static float[] readWind() {
         init();
         if (fX == null || fZ == null || fActive == null) return null;
@@ -52,6 +58,12 @@ public final class RoofDripsLink {
             fActive = wind.getField("active");
             fX = wind.getField("x");
             fZ = wind.getField("z");
+            try {
+                wind.getField("rainOverridden");
+                rainScalingSupported = true;
+            } catch (NoSuchFieldException e) {
+                rainScalingSupported = false;
+            }
         } catch (Throwable t) {
             fActive = null; fX = null; fZ = null;
         }

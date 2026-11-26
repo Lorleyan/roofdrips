@@ -5,7 +5,7 @@ import net.minecraft.util.RandomSource;
 /**
  * The simulated wind. Vanilla Minecraft has no wind, so this is made up: a base direction that slowly drifts,
  * a per-storm "personality" (Calm / Breezy / Windy / Gale) and smooth gusts. Blocks per tick.
- * Same model and units as Roof Drips, so both mods can share one wind.
+ * Same model and units as Immersive Drips, so both mods can share one wind.
  */
 public final class StormWind {
 

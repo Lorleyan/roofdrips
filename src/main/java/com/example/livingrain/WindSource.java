@@ -1,6 +1,6 @@
 package com.example.livingrain;
 
-/** Chooses which wind the rain uses: this mod's own, or (if Roof Drips is in charge) Roof Drips'. */
+/** Chooses which wind the rain uses: this mod's own, or (if Immersive Drips is in charge) Immersive Drips'. */
 public final class WindSource {
     private static final float[] OUT = new float[3];
 

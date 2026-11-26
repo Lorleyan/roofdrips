@@ -12,6 +12,12 @@ public class LivingRainClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         ParticleProviderRegistry.getInstance().register(LivingRainMod.RAIN, RainParticle.RainProvider::new);
+        ParticleProviderRegistry.getInstance().register(LivingRainMod.RAIN_SOLID, RainParticle.SolidRainProvider::new);
+        ParticleProviderRegistry.getInstance().register(LivingRainMod.RAIN_GLINT_A, RainParticle.GlintProvider::new);
+        ParticleProviderRegistry.getInstance().register(LivingRainMod.RAIN_GLINT_B, RainParticle.GlintProvider::new);
+        for (net.minecraft.core.particles.SimpleParticleType sheet : LivingRainMod.RAIN_SHEET) {
+            ParticleProviderRegistry.getInstance().register(sheet, RainParticle.SheetProvider::new);
+        }
         ParticleProviderRegistry.getInstance().register(LivingRainMod.SNOW, RainParticle.SnowProvider::new);
         ClientTickEvents.END_CLIENT_TICK.register(LivingRainClient::onTick);
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> LivingRainCommands.register(dispatcher));

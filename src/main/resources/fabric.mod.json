@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "roofdrips",
+  "id": "livingrain",
   "version": "${version}",
-  "name": "Brewtality's Immersive Drips",
-  "description": "Rain runs off roof edges, overhangs and cave mouths in streams and drips. Works on its own; with Brewtality's Immersive Rain installed they share one wind and the drips follow how heavy the rain is. Configure via Mod Menu.",
+  "name": "Brewtality's Immersive Rain",
+  "description": "Particle-based rain and snow that changes from storm to storm and during storms, with simulated wind. Works on its own; with Brewtality's Immersive Drips installed they share one wind and the drips follow how heavy the rain is. Configure via Mod Menu.",
   "authors": [
     "Brewtality"
   ],
@@ -11,15 +11,22 @@
   "environment": "client",
   "entrypoints": {
     "main": [
-      "com.example.eavesdrip.RoofDripsMod"
+      "com.example.livingrain.LivingRainMod"
     ],
     "client": [
-      "com.example.eavesdrip.EavesDripClient"
+      "com.example.livingrain.LivingRainClient"
     ],
     "modmenu": [
-      "com.example.eavesdrip.RoofDripsModMenu"
+      "com.example.livingrain.LivingRainModMenu"
+    ],
+    "roofdrips:wind": [
+      "com.example.livingrain.RoofDripsWindSupplier"
     ]
   },
+  "mixins": [
+    "livingrain.mixins.json",
+    "livingrain.weather.mixins.json"
+  ],
   "depends": {
     "fabricloader": ">=0.19.5",
     "minecraft": "~26.3",
@@ -29,6 +36,6 @@
   "suggests": {
     "modmenu": "*",
     "yet_another_config_lib_v3": "*",
-    "livingrain": ">=1.1.0"
+    "roofdrips": ">=1.1.0"
   }
 }

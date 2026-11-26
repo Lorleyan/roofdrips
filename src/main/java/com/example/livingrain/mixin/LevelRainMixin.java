@@ -12,7 +12,7 @@ import net.minecraft.world.level.Level;
 
 /**
  * The heart of the sky/cloud/shader link: on the CLIENT only, the game's rain level is replaced by the
- * smooth storm level from StormDirector. The sky colour, vanilla clouds, shader packs and Roof Drips all read this value.
+ * smooth storm level from StormDirector. The sky colour, vanilla clouds, shader packs and Immersive Drips all read this value.
  * The server's own weather is never touched.
  */
 @Mixin(Level.class)

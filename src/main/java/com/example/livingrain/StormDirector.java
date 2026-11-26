@@ -35,7 +35,7 @@ public final class StormDirector {
     private static ClientLevel lastLevel;
     private static RandomSource rnd;
     private static boolean stormOn, thunderOn, snapNext, hookChecked, hookOk, tapering;
-    private static float prevRain, curRain, rawRain, rawThunder, prevThunder, curThunder;
+    private static float prevRain, curRain, rawRain, rawThunder, prevThunder, curThunder, thunderBlend;
     private static int stormAge, tier, tierTimer, eventTicks, worldTicks, lastWind = -1;
     private static float tierBase, eventOffset, wanderPhase;
     private static long clock;
@@ -94,6 +94,27 @@ public final class StormDirector {
     public static boolean hookWorks() { return hookOk; }
     public static String tierName() { return TIER_NAMES[tier]; }
     public static float rawRain() { return rawRain; }
+
+    /** The game's own thunder level (what vanilla would report): raw thunder times raw rain. */
+    public static float rawThunderLevel() { return rawThunder * rawRain; }
+
+    /**
+     * The rain level Immersive Drips should use. With drip scaling on: a level that follows the storm's severity, so a drizzle
+     * gives a fraction of Immersive Drips' own drip density and a thunderstorm gives more (drizzle -> torrential are blended evenly,
+     * thunder eases to the thunderstorm amount). With it off: the server's plain rain level, exactly what Immersive Drips would
+     * see without this mod, so it behaves as it always did.
+     */
+    public static float dripLevel(LivingRainConfig cfg) {
+        if (!cfg.dripScaling) return rawRain;
+        float i = curRain;
+        if (i <= 0.0005f) return 0f;
+        float t = Math.max(0f, Math.min(1f, (i - 0.25f) / 0.75f));
+        float rain = cfg.dripDrizzle + (cfg.dripTorrential - cfg.dripDrizzle) * t;
+        float level = rain + (cfg.dripThunder - rain) * thunderBlend;
+        return level * Math.min(1f, i / 0.25f);       // fades out smoothly while a storm tapers off
+    }
+    /** 0..1, eases to 1 while a thunderstorm is going on (about 5 seconds), and back to 0 afterwards. */
+    public static float thunderBlend() { return thunderBlend; }
     public static float rawThunder() { return rawThunder; }
     public static int worldTicks() { return worldTicks; }
     public static boolean testActive() { return testActive; }
@@ -109,13 +130,14 @@ public final class StormDirector {
     // ================= Tick =================
 
     static void reset() {
-        prevRain = 0f; curRain = 0f; prevThunder = 0f; curThunder = 0f;
+        prevRain = 0f; curRain = 0f; prevThunder = 0f; curThunder = 0f; thunderBlend = 0f;
         stormOn = false; thunderOn = false; controlling = false; testActive = false; tapering = false;
         eventTicks = 0; eventOffset = 0f; stormAge = 0; worldTicks = 0; lastWind = -1;
         lastLevel = null;
         RainParticle.clearAll();     // Minecraft discards particles on world change without telling them
         StormWind.forced = -1;
         StormWind.reset();
+        Curtains.reset();
         WeatherMessages.resetCooldown();
     }
 
@@ -136,7 +158,7 @@ public final class StormDirector {
         checkHook(level);
         if (worldTicks == 400 && WeatherHooks.shouldHide() && (WeatherHooks.drawHits() == 0 || WeatherHooks.tickHits() == 0)) {
             LOG.warn("[livingrain] Some vanilla weather hooks never fired (draw hits: {}, splash/sound hits: {}). "
-                    + "Using the fallback method to hide vanilla rain. Run /livingrain status and send me the result.",
+                    + "Using the fallback method to hide vanilla rain. Run /BRain status and send me the result.",
                     WeatherHooks.drawHits(), WeatherHooks.tickHits());
         }
 
@@ -235,6 +257,7 @@ public final class StormDirector {
         if (test) curThunder += (rawThunder - curThunder) * (1f / 60f);
         else curThunder = 0f;
 
+        thunderBlend += ((stormOn && thunderOn ? 1f : 0f) - thunderBlend) * 0.01f;
         controlling = test || (cfg.controlRainLevel && (stormOn || curRain > 0.001f));
     }
 

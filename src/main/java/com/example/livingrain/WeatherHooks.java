@@ -8,7 +8,7 @@ package com.example.livingrain;
  *  2. a mixin on ClientLevel.tickWeatherEffects (vanilla splashes and rain sounds), kind 2 (26.3) and 3 (older versions)
  *  3. a safety net: if none of the above ever fires, the rain level is reported as 0 to the vanilla weather code only
  *     (found by looking at who is asking), see StormDirector.hookValue
- * The counters are shown by "/livingrain status".
+ * The counters are shown by "/BRain status".
  */
 public final class WeatherHooks {
 
